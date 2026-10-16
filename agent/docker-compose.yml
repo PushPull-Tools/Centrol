@@ -1,0 +1,27 @@
+# Centrol Agent : à installer sur chaque AUTRE serveur à surveiller depuis Centrol.
+services:
+  centrol-agent:
+    build: .
+    container_name: centrol-agent
+    restart: unless-stopped
+    # journal du conteneur limité (3 fichiers de 10 Mo) : il ne peut pas remplir le disque
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file: .env
+    ports:
+      - "${AGENT_BIND:-0.0.0.0}:${AGENT_PORT:-8323}:8323"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${NPM_DATA_DIR:-./no-npm}/database.sqlite:/npm/database.sqlite:ro
+      # état de la machine (CPU, mémoire, disques, réseau, températures), en lecture seule
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/hostfs:ro,rslave
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp

@@ -1,0 +1,38 @@
+name: Publication
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Notes de version (depuis CHANGELOG.md)
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          awk -v v="$V" '/^## \[/{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Voir CHANGELOG.md" > notes.md
+      - name: Propriétaire en minuscules (exigé par ghcr.io)
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+      - name: Connexion à ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/centrol:${{ github.ref_name }}
+            ghcr.io/${{ env.OWNER }}/centrol:latest
+      - name: Version GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Centrol ${{ github.ref_name }}
+          body_path: notes.md

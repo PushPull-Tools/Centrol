@@ -1,0 +1,35 @@
+services:
+  centrol:
+    build: .
+    image: centrol:local
+    container_name: centrol
+    restart: unless-stopped
+    # journal du conteneur limité (3 fichiers de 10 Mo) : il ne peut pas remplir le disque
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file: .env
+    ports:
+      - "${CENTROL_PORT:-8322}:8322"
+    # lecture de /etc/shadow de l'hôte (connexion avec les utilisateurs locaux du serveur)
+    group_add:
+      - "${SHADOW_GID:-42}"
+    volumes:
+      - ./data:/data
+      - ${NPM_DATA_DIR:-./data/npm-absent}:/npm:ro
+      - /etc:/host/etc:ro
+    networks:
+      - proxy
+      - docker_proxy
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-npm_network}
+  docker_proxy:
+    external: true
+    name: docker_proxy

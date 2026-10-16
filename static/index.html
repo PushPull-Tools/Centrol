@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Centrol</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#11141b">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-mode="overview" data-bar="top" data-view="grid">
+  <div id="app">
+    <header id="bar">
+      <button id="brand" class="brand" title="Vue d’ensemble (Échap ou Alt+0)">
+        <img src="/favicon.svg" alt="" width="22" height="22"><span class="bname">Centrol</span><i id="live" class="live" title="Connexion temps réel"></i>
+      </button>
+      <div class="tabs-wrap">
+        <button class="tscroll l" id="tsl" title="Défiler" tabindex="-1" aria-hidden="true"></button>
+        <nav id="tabs" aria-label="Applications"></nav>
+        <button class="tscroll r" id="tsr" title="Défiler" tabindex="-1" aria-hidden="true"></button>
+      </div>
+      <button class="tool" id="hideBtn"></button>
+      <div id="btools" class="btools" role="toolbar" aria-label="Outils"></div>
+      <button class="tool menubtn" id="menuBtn" aria-haspopup="menu"></button>
+    </header>
+    <main id="stage">
+      <div id="bg" aria-hidden="true"></div>
+      <div id="wins"><div id="winl"></div></div>
+      <div id="ov"><div id="ovc"></div></div>
+      <div id="divider" hidden></div>
+      <div id="dropzones" hidden></div>
+      <button id="back" title="Retour à la vue d’ensemble (Échap)"></button>
+    </main>
+  </div>
+  <button id="handle" title="Afficher la barre (Alt+Maj+B)" aria-label="Afficher la barre"></button>
+  <div id="toasts" aria-live="polite"></div>
+<script src="/static/vendor/xterm.js"></script>
+<script src="/static/vendor/addon-fit.js"></script>
+<script type="module" src="/static/js/main.js"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "centrol-desktop",
+  "productName": "Centrol",
+  "version": "1.0.0",
+  "description": "Client de bureau de Centrol — toutes les interfaces web du serveur dans une seule fenêtre",
+  "author": "Pierre Desenfant",
+  "license": "SEE LICENSE IN ../LICENSE.md",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "fr.desenfant.centrol",
+    "productName": "Centrol",
+    "directories": { "buildResources": "build", "output": "dist" },
+    "files": ["main.js", "preload.js", "setup.html", "build/icon.png"],
+    "linux": { "target": ["AppImage", "deb"], "category": "Network", "icon": "build/icon.png" },
+    "win": { "target": ["nsis"], "icon": "build/icon.png" },
+    "nsis": { "oneClick": true, "perMachine": false },
+    "publish": [{ "provider": "github" }]
+  }
+}
