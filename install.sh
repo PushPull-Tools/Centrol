@@ -45,7 +45,7 @@ docker compose version >/dev/null 2>&1 || die "Le plugin « docker compose » es
 SELF_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")" 2>/dev/null && pwd || echo /tmp)"
 if [ ! -f "$SELF_DIR/Dockerfile" ] || [ ! -d "$SELF_DIR/app" ]; then
   CENTROL_DIR=${CENTROL_DIR:-/srv/docker/centrol}
-  CENTROL_GIT=${CENTROL_GIT:-https://github.com/PushPull-Tools/centrol.git}
+  CENTROL_GIT=${CENTROL_GIT:-https://github.com/PushPull-Tools/Centrol.git}
   if ! command -v git >/dev/null; then   # toute distribution : apt, dnf, zypper, pacman, apk
     for pm in "apt-get install -y" "dnf install -y" "zypper -n install" "pacman -S --noconfirm" "apk add"; do
       command -v ${pm%% *} >/dev/null && { $pm git >/dev/null; break; }
@@ -181,7 +181,7 @@ SHADOW_GID=$SHADOW_GID
 HOST_ADDRS=$LAN_IP,$GW,$(hostname)
 FS_BOOKMARKS=${FS_BOOKMARKS:-/srv/docker,~,/etc,/var/log,/}
 TZ=${TZ:-Europe/Paris}
-CENTROL_REPO=${CENTROL_REPO:-PushPull-Tools/centrol}
+CENTROL_REPO=${CENTROL_REPO:-PushPull-Tools/Centrol}
 ENV
 chmod 600 .env
 # autres serveurs (facultatif) : Centrol Agent doit déjà tourner sur chacun (dossier agent/, sudo ./install-agent.sh)

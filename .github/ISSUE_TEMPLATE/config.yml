@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Faille de sécurité
-    url: https://github.com/PushPull-Tools/centrol/security/advisories/new
+    url: https://github.com/PushPull-Tools/Centrol/security/advisories/new
     about: Signalement privé, pas d'issue publique

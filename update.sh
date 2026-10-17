@@ -73,14 +73,14 @@ ADMIN_USER=${SSH_USER:-}
 HOST_ADDRS=${HOST_ADDRS:-}
 FS_BOOKMARKS=${FS_BOOKMARKS:-/srv/docker,~,/etc,/var/log,/}
 TZ=${TZ:-Europe/Paris}
-CENTROL_REPO=PushPull-Tools/centrol
+CENTROL_REPO=PushPull-Tools/Centrol
 ENV
   chmod 600 .env
   MIGRATED=1
 else
   step "1/5 · Configuration"
   [ -f .env ] || die "Centrol n'est pas encore installé ici : lance sudo ./install.sh"
-  if [ -d .git ]; then
+  if [ -d .git ] && [ "${NO_PULL:-0}" != 1 ]; then
     info "Récupération de la dernière version…"
     git pull --ff-only && VERSION=$(cat VERSION)
   fi
@@ -92,7 +92,7 @@ ADMIN_USER=${ADMIN_USER:-$SSH_USER}
 . ./tools/shadow-gid.sh
 envset SHADOW_GID "$SHADOW_GID"
 envset ADMIN_USER "$ADMIN_USER"
-grep -q "^CENTROL_REPO=" .env || envset CENTROL_REPO "PushPull-Tools/centrol"
+grep -q "^CENTROL_REPO=" .env || envset CENTROL_REPO "PushPull-Tools/Centrol"
 ok "Configuration : $CENTROL_URL · admin $ADMIN_USER"
 
 # ================================================================= 2. système

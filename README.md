@@ -122,7 +122,7 @@ Le script demande l'adresse d'écoute (VPN ou réseau local conseillé) et affic
 - Un utilisateur local du serveur, sudoer, pour administrer Centrol.
 
 ```bash
-sudo git clone https://github.com/PushPull-Tools/centrol /srv/docker/centrol
+sudo git clone https://github.com/PushPull-Tools/Centrol /srv/docker/centrol
 cd /srv/docker/centrol
 sudo ./install.sh
 ```
@@ -130,7 +130,7 @@ sudo ./install.sh
 ou en une ligne :
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PushPull-Tools/centrol/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/PushPull-Tools/Centrol/main/install.sh | sudo bash
 ```
 
 L'installeur pose ses questions, avec une réponse par défaut pour chacune :
