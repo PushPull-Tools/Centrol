@@ -15,7 +15,7 @@
     "electron-builder": "25.1.8"
   },
   "build": {
-    "appId": "fr.desenfant.centrol",
+    "appId": "io.github.pushpull-tools.centrol",
     "productName": "Centrol",
     "directories": { "buildResources": "build", "output": "dist" },
     "files": ["main.js", "preload.js", "setup.html", "build/icon.png"],
