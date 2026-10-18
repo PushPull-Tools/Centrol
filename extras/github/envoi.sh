@@ -46,6 +46,7 @@ github-push)
   root; if [ -n "${1:-}" ] && [ -d "$BASE/$1" ]; then cible "$1"; shift; else cible ""; fi
   depot; exige_cle; identite; ssh_url; envoyer "$*" ;;
 github-cle)
+  c=$(cle_ok); [ -n "$c" ] && { ok "Ce serveur a déjà une clé reconnue par GitHub (compte $c) : rien à faire"; exit; }
   mkdir -p ~/.ssh && chmod 700 ~/.ssh
   if [ -f "$K" ]; then ok "Clé déjà présente : $K"; else ssh-keygen -q -t ed25519 -N "" -C "$(hostname)-github" -f "$K" && ok "Clé créée : $K"; fi
   grep -q github_ed25519 ~/.ssh/config 2>/dev/null || printf '\nHost github.com\n  User git\n  IdentityFile %s\n  IdentitiesOnly yes\n  StrictHostKeyChecking accept-new\n' "$K" >> ~/.ssh/config
