@@ -4,7 +4,7 @@
 set -uo pipefail
 BASE=${DOCKER_DIR:-/srv/docker}
 HERE=$(dirname "$(readlink -f "$0")")
-DEF_URL=https://github.com/PushPull-Tools/Centrol.git
+DEF_URL=git@github.com:PushPull-Tools/Centrol-dev.git
 G='\033[32m'; Y='\033[33m'; R='\033[31m'; B='\033[1m'; D='\033[2m'; N='\033[0m'
 ok(){ printf "${G}✔${N} %s\n" "$*"; }; info(){ printf "${B}›${N} %s\n" "$*"; }
 warn(){ printf "${Y}!${N} %s\n" "$*"; }; die(){ printf "${R}✘ %s${N}\n" "$*" >&2; exit 1; }
