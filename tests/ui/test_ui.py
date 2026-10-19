@@ -29,7 +29,10 @@ def server():
             time.sleep(0.1)
     yield url
     p.terminate()
-    p.wait(10)
+    try:
+        p.wait(5)
+    except subprocess.TimeoutExpired:          # connexions en direct encore ouvertes : arrêt net
+        p.kill()
 
 
 @pytest.fixture(scope="module")
@@ -110,4 +113,21 @@ def test_utilisateur_sans_administration(browser, server):
     assert page.errors == []
     r = page.evaluate("fetch('/api/admin').then(r=>r.status)")
     assert r == 403
+    page.close()
+
+
+def test_sources_des_applis(browser, server):
+    page = open_as(browser, server, "admin1", "adminpw123")
+    page.evaluate("(async()=>{const s=await import('/static/js/settings.js'); s.openSettings('servers')})()")
+    page.wait_for_selector("text=Sources des applis", timeout=5000)
+    page.locator("button[title='Régler']").first.click()
+    page.wait_for_selector("text=Proxy de", timeout=5000)
+    dlg = page.locator(".modal").last
+    dlg.locator("select").select_option("traefik")
+    assert dlg.locator("input.mono").is_visible()
+    dlg.locator("select").select_option("auto")
+    assert not dlg.locator("input.mono").is_visible()
+    dlg.get_by_role("button", name="Tester").click()
+    page.wait_for_selector("text=Aucun proxy détecté", timeout=8000)
+    assert page.errors == []
     page.close()

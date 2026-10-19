@@ -108,12 +108,21 @@ function blockedCard(a) {
 
 function embedHelp(a) {
   const hostn = (S.me && S.me.centrolHost) || location.hostname;
-  const snippet = `proxy_hide_header X-Frame-Options;\nproxy_hide_header Content-Security-Policy;\nadd_header Content-Security-Policy "frame-ancestors 'self' https://${hostn}" always;`;
+  const src = a.source || 'npm';
+  const nginx = `proxy_hide_header X-Frame-Options;\nproxy_hide_header Content-Security-Policy;\nadd_header Content-Security-Policy "frame-ancestors 'self' https://${hostn}" always;`;
+  const snippet = {
+    traefik: `traefik.http.middlewares.centrol-frame.headers.customresponseheaders.X-Frame-Options=\ntraefik.http.middlewares.centrol-frame.headers.contentsecuritypolicy=frame-ancestors 'self' https://${hostn}\ntraefik.http.routers.<routeur>.middlewares=centrol-frame`,
+    caddy: `header {\n\t-X-Frame-Options\n\tContent-Security-Policy "frame-ancestors 'self' https://${hostn}"\n}`,
+  }[src] || nginx;
+  const steps = {
+    npm: [h('li', null, 'NPM → ', h('b', null, 'Hosts → Proxy Hosts'), ' → ', h('b', {text: a.domain}), ' → ', h('b', null, 'Edit')),
+      h('li', null, 'Onglet ', h('b', null, 'Advanced'), ' : colle le code, puis ', h('b', null, 'Save'))],
+    traefik: [h('li', null, 'Ajoute ces étiquettes au conteneur de l’appli (remplace <routeur> par le nom de son routeur), puis recrée-le')],
+    caddy: [h('li', null, 'Caddyfile → bloc ', h('b', {text: a.domain}), ' : colle le code, puis recharge Caddy')],
+  }[src] || [h('li', null, 'Configuration Nginx → bloc server de ', h('b', {text: a.domain}), ' : colle le code, puis recharge Nginx')];
   modal({title: 'Rendre « ' + nameOf(a) + ' » intégrable', ok: 'Copier le code', cancel: 'Fermer', body: [
-    h('p', {text: 'Le plus simple : le correctif global du README (section « Intégration ») règle toutes les applis d’un coup. Sinon, pour cette appli seulement :'}),
-    h('ol', {class: 'steps'},
-      h('li', null, 'NPM → ', h('b', null, 'Hosts → Proxy Hosts'), ' → ', h('b', {text: a.domain}), ' → ', h('b', null, 'Edit')),
-      h('li', null, 'Onglet ', h('b', null, 'Advanced'), ' : colle le code, puis ', h('b', null, 'Save')),
+    h('p', {text: src === 'npm' ? 'Le plus simple : le correctif global du README (section « Intégration ») règle toutes les applis d’un coup. Sinon, pour cette appli seulement :' : 'Pour que cette appli s’affiche dans Centrol :'}),
+    h('ol', {class: 'steps'}, ...steps,
       h('li', null, 'Paramètres → Diagnostic → « Revérifier l’intégration ».')),
     h('pre', {class: 'code', text: snippet})],
   onOk: async () => { await navigator.clipboard.writeText(snippet); toast('Code copié'); }});
@@ -594,7 +603,7 @@ function updateHead(el, s) {
 function cardSig(a, view) {
   const st = view === 'blocks' && a.container && S.stats[a.container];
   // ni l'onglet actif ni « page chargée » (sauf outils) : ils changent à chaque aller-retour et reconstruiraient la vignette (saut visible)
-  return [nameOf(a), a.domain, a.icon, ov(a.key).icon, a.health, a.update, isFav(a.key), embedOf(a), view, thumbMode(), S.me && S.me.admin, a.builtin ? !!(S.wins.get(a.key) || {}).loaded : 0,
+  return [nameOf(a), a.domain, a.server, a.icon, ov(a.key).icon, a.health, a.update, isFav(a.key), embedOf(a), view, thumbMode(), S.me && S.me.admin, a.builtin ? !!(S.wins.get(a.key) || {}).loaded : 0,
     st ? Math.round(st.cpu) + ':' + Math.round(st.mem / 1048576) : ''].join('|');
 }
 
@@ -640,10 +649,12 @@ function card(a, view, idx) {
   const thumb = h('div', {class: 'thumb' + (iconOnly ? ' iconthumb' : '')}, iconOnly ? h('div', {class: 'itile', style: {'--h': String(a.builtin ? 230 : 0)}}, appIcon(a, 56)) : null);
   // adresse sous la vignette : administrateurs seulement ; pour les autres, logo et nom centrés
   const showUrl = !!(S.me && S.me.admin) && !a.builtin && !!a.domain;
+  // appli hébergée sur une autre machine : son nom à côté de l'adresse (administrateurs, comme l'adresse)
+  const where = showUrl ? a.domain + (a.server ? ' · ' + a.server : '') : '';
   const info = view === 'blocks' ? h('div', {class: 'cap2'},
-    h('div', {class: 'cl'}, badged(a, 22), h('div', {class: 'ct'}, h('b', {text: nameOf(a)}), showUrl ? h('small', {text: a.domain}) : null)),
+    h('div', {class: 'cl'}, badged(a, 22), h('div', {class: 'ct'}, h('b', {text: nameOf(a)}), showUrl ? h('small', {notr: true, text: where}) : null)),
     h('div', {class: 'cr'}, statPills(a)))
-    : h('div', {class: 'cap' + (showUrl ? '' : ' nourl')}, badged(a, 18), h('span', {class: 'cn', text: nameOf(a)}), showUrl ? h('span', {class: 'cd', text: a.domain}) : null);
+    : h('div', {class: 'cap' + (showUrl ? '' : ' nourl')}, badged(a, 18), h('span', {class: 'cn', text: nameOf(a)}), showUrl ? h('span', {class: 'cd', notr: true, text: where}) : null);
   // chargement : logo de l'appli entouré d'un anneau qui tourne, à la taille de la vignette (pas réduit avec la page)
   thumb.append(h('div', {class: 'cload', 'aria-hidden': 'true'}, h('div', {class: 'ring'}, appIcon(a, 44))));
   el.replaceChildren(thumb, info, starBtn(a), reloadBtn(a));

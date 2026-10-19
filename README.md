@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Toutes les interfaces web de ton serveur dans une seule fenêtre.</b><br>
-  Onglets automatiques depuis Docker et Nginx Proxy Manager · supervision · terminal · fichiers · comptes et droits.
+  Onglets automatiques depuis Docker et ton proxy (NPM, Traefik, Caddy, Nginx, SWAG) · supervision · terminal · fichiers · comptes et droits.
 </p>
 
 <p align="center">
@@ -39,7 +39,9 @@
 ## Fonctionnalités
 
 **Onglets automatiques**
-- Chaque conteneur actif qui a un hôte proxy dans Nginx Proxy Manager devient un onglet, avec son icône ([Dashboard Icons](https://github.com/homarr-labs/dashboard-icons)) et un nom propre (AdGuard, NPM, Nextcloud…).
+- Chaque conteneur actif publié par ton proxy devient un onglet, avec son icône ([Dashboard Icons](https://github.com/homarr-labs/dashboard-icons)) et un nom propre (AdGuard, NPM, Nextcloud…).
+- Proxys lus : **Nginx Proxy Manager** (sa base), **Traefik** (étiquettes Docker, ou son API pour les routes en fichiers), **Caddy** (Caddyfile, ou son API d'administration), **Nginx** et **SWAG** (fichiers de configuration). Le proxy est détecté à son image Docker ; on peut le choisir à la main dans **Paramètres › Serveurs › Sources des applis**.
+- Applis d'autres machines : le proxy de chaque serveur relié par un agent est lu aussi, et chaque appli est rattachée à son conteneur, où qu'il tourne (son nom de machine s'affiche sous la vignette pour les administrateurs).
 - Un conteneur s'arrête : son onglet disparaît. Il redémarre : l'onglet revient à sa place.
 - Les pages restent ouvertes en arrière-plan : passer d'une appli à l'autre ne recharge rien.
 - Onglets personnels : ajoute n'importe quel site, avec son icône récupérée automatiquement.
@@ -118,7 +120,7 @@ Le script demande l'adresse d'écoute (VPN ou réseau local conseillé) et affic
 
 **Prérequis**
 - Serveur Linux avec systemd (Ubuntu, Debian, Fedora… ; développé sur Ubuntu 24.04) avec Docker et le plugin compose.
-- [Nginx Proxy Manager](https://nginxproxymanager.com) avec sa base SQLite, sur un réseau Docker.
+- Un proxy inverse dans Docker : [Nginx Proxy Manager](https://nginxproxymanager.com) (installation guidée par `install.sh`), Traefik, Caddy, Nginx ou SWAG.
 - Un utilisateur local du serveur, sudoer, pour administrer Centrol.
 
 ```bash

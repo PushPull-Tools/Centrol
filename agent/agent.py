@@ -7,13 +7,13 @@ import http.server
 import json
 import os
 import re
-import shutil
 import socket
-import sqlite3
 import urllib.parse
 from pathlib import Path
 
-VERSION = "1.0.0"
+import sources
+
+VERSION = "1.1.0"
 SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
 TOKEN = os.environ.get("CENTROL_AGENT_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8323"))
@@ -45,35 +45,11 @@ def docker(path: str) -> tuple[int, bytes, str]:
         c.close()
 
 
-def proxies() -> list:
-    if not NPM_DB.exists():
-        return []
-    tmp = Path("/tmp/npm")
-    tmp.mkdir(exist_ok=True)
-    for suf in ("", "-wal", "-shm"):
-        src, dst = Path(str(NPM_DB) + suf), tmp / ("db.sqlite" + suf)
-        if src.exists():
-            shutil.copyfile(src, dst)
-        else:
-            dst.unlink(missing_ok=True)
-    con = sqlite3.connect(tmp / "db.sqlite")
-    con.row_factory = sqlite3.Row
-    try:
-        rows = [dict(r) for r in con.execute("SELECT * FROM proxy_host WHERE is_deleted = 0")]
-    finally:
-        con.close()
-    out = []
-    for d in rows:
-        try:
-            domains = [x for x in json.loads(d.get("domain_names") or "[]") if not x.startswith("*")]
-        except ValueError:
-            continue
-        if domains:
-            out.append({"id": d.get("id"), "domains": domains, "domain": domains[0].lower(),
-                        "forward_scheme": d.get("forward_scheme") or "http", "forward_host": str(d.get("forward_host") or ""),
-                        "forward_port": int(d.get("forward_port") or 0), "certificate_id": int(d.get("certificate_id") or 0),
-                        "enabled": bool(d.get("enabled", 1))})
-    return out
+def proxies(kind: str = "auto", url: str = "") -> dict:
+    """Applis publiées par le proxy de cette machine (NPM, Traefik, Caddy, Nginx, SWAG), en lecture seule."""
+    code, body, _ = docker("/containers/json")
+    containers = json.loads(body) if code == 200 else []
+    return sources.collect(kind, url, containers, NPM_DB, Path("/tmp/npm"), sources.read_local(ROOT))
 
 
 def rd(p: Path, default: str = "") -> str:
@@ -156,7 +132,7 @@ class H(http.server.BaseHTTPRequestHandler):
         try:
             if p == "/v1/ping":
                 return self.send(200, {"ok": True, "version": VERSION, "host": rd(ROOT / "etc/hostname").strip() or socket.gethostname(),
-                                       "npm": NPM_DB.exists(), "hostStats": (PROC / "stat").exists()})
+                                       "npm": NPM_DB.exists() and NPM_DB.stat().st_size > 0, "proxies": True, "hostStats": (PROC / "stat").exists()})
             if p == "/v1/containers":
                 code, body, ct = docker("/containers/json?all=1")
                 return self.send(code, body, ct)
@@ -165,7 +141,13 @@ class H(http.server.BaseHTTPRequestHandler):
             if p == "/v1/hostinfo":
                 return self.send(200, host_info().encode(), "text/plain; charset=utf-8")
             if p == "/v1/proxies":
-                return self.send(200, proxies())
+                kind = (q.get("kind") or ["auto"])[0]
+                if kind not in ("auto", "none") + sources.KINDS:
+                    return self.send(400, {"error": "type de proxy inconnu"})
+                try:
+                    return self.send(200, proxies(kind, (q.get("url") or [""])[0]))
+                except Exception as e:  # noqa: BLE001
+                    return self.send(200, {"kind": kind, "proxies": [], "error": str(e)[:200]})
             m = re.fullmatch(r"/v1/containers/([^/]+)/(stats|logs)", p)
             if m and ID.match(m.group(1)):
                 cid, kind = m.groups()

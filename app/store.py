@@ -20,6 +20,7 @@ DEFAULT_SETTINGS = {
     "access": {"enabled": False},          # plages horaires globales (désactivées par défaut)
     "alerts": [],                          # règles d'alertes sur les journaux
     "servers": [],                         # autres serveurs (Centrol Agent)
+    "proxy": {"kind": "auto", "url": ""},  # proxy de ce serveur, source des applis (détecté par défaut)
     "serverAlert": {"notify": True, "webhook": ""},   # alerte « serveur injoignable »
     "branding": {"name": "", "logo": "", "background": "", "bgDim": 35, "bgBlur": 0, "colors": {}},
     "beer": {"enabled": False, "url": ""},

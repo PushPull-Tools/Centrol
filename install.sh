@@ -65,16 +65,18 @@ printf "${D}Développé par Pierre Desenfant · toutes les questions ont une ré
 # ================================================================= 1. questions
 step "1/6 · Configuration"
 NPM_C=$(docker ps -a --format '{{.Names}}\t{{.Image}}' | awk -F'\t' '$2 ~ /nginx-proxy-manager/ {print $1; exit}')
+# proxy de ce serveur (NPM, Traefik, Caddy, SWAG, Nginx) : Centrol rejoint son réseau Docker
+PX_C=${NPM_C:-$(docker ps --format '{{.Names}}\t{{.Image}}' | awk -F'\t' '$2 ~ /(^|\/)(traefik|caddy|swag|nginx)(:|$)/ {print $1; exit}')}
 DEF_NET=${PROXY_NETWORK:-}
-if [ -z "$DEF_NET" ] && [ -n "$NPM_C" ]; then
-  DEF_NET=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$NPM_C" | tr ' ' '\n' | grep -v '^bridge$' | head -1)
+if [ -z "$DEF_NET" ] && [ -n "$PX_C" ]; then
+  DEF_NET=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$PX_C" | tr ' ' '\n' | grep -v '^bridge$' | head -1)
 fi
 DEF_NET=${DEF_NET:-npm_network}
-ask CENTROL_URL "Adresse publique de Centrol (son hôte proxy dans NPM)" "${CENTROL_URL:-https://centrol.mondomaine.org}"
+ask CENTROL_URL "Adresse publique de Centrol (son hôte dans ton proxy)" "${CENTROL_URL:-https://centrol.mondomaine.org}"
 CENTROL_URL=${CENTROL_URL%/}
 [[ "$CENTROL_URL" =~ ^https?:// ]] || CENTROL_URL="https://$CENTROL_URL"
 ask CENTROL_PORT "Port local de Centrol sur ce serveur" "${CENTROL_PORT:-8322}"
-ask PROXY_NETWORK "Réseau Docker de Nginx Proxy Manager" "$DEF_NET"
+ask PROXY_NETWORK "Réseau Docker de ton proxy (Nginx Proxy Manager, Traefik, Caddy…)" "$DEF_NET"
 DEF_ADMIN=${SSH_USER:-${SUDO_USER:-}}; [ "$DEF_ADMIN" = root ] && DEF_ADMIN=""
 ask ADMIN_USER "Utilisateur local administrateur de Centrol (sudoer, sert aussi au SSH interne)" "${ADMIN_USER:-$DEF_ADMIN}"
 [ -n "$ADMIN_USER" ] && [ "$ADMIN_USER" != root ] || die "Indique un utilisateur local normal du serveur (pas root)"
@@ -84,7 +86,7 @@ SSH_USER=$ADMIN_USER
 if ! docker ps --format '{{.Names}}' | grep -qx centrol && ss -ltnH "sport = :$CENTROL_PORT" | grep -q .; then
   die "Le port $CENTROL_PORT est déjà utilisé. Relance et choisis-en un autre."
 fi
-docker network inspect "$PROXY_NETWORK" >/dev/null 2>&1 || die "Réseau Docker « $PROXY_NETWORK » introuvable (celui de Nginx Proxy Manager)"
+docker network inspect "$PROXY_NETWORK" >/dev/null 2>&1 || die "Réseau Docker « $PROXY_NETWORK » introuvable (celui de ton proxy)"
 SUBNET=$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' "$PROXY_NETWORK" | awk '{print $1}')
 GW=$(docker network inspect -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' "$PROXY_NETWORK" | awk '{print $1}')
 [ -n "$SUBNET" ] && [ -n "$GW" ] || die "Impossible de lire le sous-réseau de $PROXY_NETWORK"
@@ -125,7 +127,9 @@ NPM_DATA_DIR=""
 if [ -n "$NPM_DATA_DIR" ] && [ -f "$NPM_DATA_DIR/database.sqlite" ]; then
   ok "Nginx Proxy Manager : $NPM_C ($NPM_DATA_DIR, lecture seule)"
 else
-  warn "Base SQLite de Nginx Proxy Manager introuvable : aucune appli ne sera listée (NPM avec MySQL non pris en charge)"
+  if [ -n "$NPM_C" ]; then warn "Base SQLite de Nginx Proxy Manager introuvable (NPM avec MySQL non pris en charge)"
+  elif [ -n "$PX_C" ]; then ok "Proxy détecté : $PX_C (lu automatiquement par Centrol)"
+  else warn "Aucun proxy détecté : Centrol listera les applis dès qu'il en trouvera un (Paramètres › Serveurs)"; fi
   NPM_DATA_DIR="$DIR/data/npm-absent"; mkdir -p "$NPM_DATA_DIR"
 fi
 

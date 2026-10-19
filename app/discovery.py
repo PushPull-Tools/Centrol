@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from . import config as C
+from . import sources as SRC
 from .icons import Icons
 
 log = logging.getLogger("centrol.discovery")
@@ -113,6 +114,19 @@ def match(proxy: dict, cinfo: list[dict]):
         for c in cinfo:
             if c["host"] and sub & tokens(c["name"]):
                 return c, "réseau hôte"
+    return None, None
+
+
+def _match_remote(proxy: dict, cinfo: list[dict], host: str | None):
+    """Même chose que match() pour le proxy d'une autre machine (son adresse remplace celles de ce serveur)."""
+    fh = proxy["forward_host"].strip().lower()
+    for c in cinfo:
+        if fh in (c["name"].lower(), c["service"].lower()) or fh in c["ips"].values():
+            return c, "nom"
+    if fh in C.LOOPBACK or (host and fh == host.lower()):
+        for c in cinfo:
+            if any(pub == proxy["forward_port"] for pub, _ in c["ports"]):
+                return c, "port publié"
     return None, None
 
 
@@ -252,6 +266,10 @@ class Discovery:
         self._wake = asyncio.Event()
         self.events_ok = False          # flux d'événements Docker connecté : plus besoin de tout relire toutes les 4 s
         self._last = None
+        self.ssh = None                 # lecture des fichiers de configuration du proxy (Caddy, Nginx) sur l'hôte
+        self.raw: list[dict] = []       # conteneurs tels que Docker les décrit (étiquettes, volumes)
+        self.sources: dict[str, dict] = {}      # machine -> {kind, detected, count, via, files, error, at}
+        self._remote_px: dict[str, tuple] = {}  # machine distante -> (horodatage, réponse de l'agent)
 
     # -- appelé par les requêtes HTTP quand CENTROL_URL n'est pas défini
     def note_host(self, request):
@@ -328,50 +346,121 @@ class Discovery:
     async def _containers(self) -> list[dict]:
         r = await self.http.get(f"{C.DOCKER_URL}/containers/json", params={"all": "1"})
         r.raise_for_status()
-        return r.json()
+        self.raw = r.json()
+        return self.raw
 
     def _proxies(self) -> list[dict]:
+        """Hôtes de Nginx Proxy Manager sur ce serveur (base relue seulement quand elle change)."""
         db = C.NPM_DB
         if not db.exists():
             raise RuntimeError(f"base NPM introuvable ({db})")
         sig = tuple((Path(str(db) + s).stat().st_mtime_ns if Path(str(db) + s).exists() else 0)
                     for s in ("", "-wal"))
-        if sig == self._db_sig:
-            return self._db_cache
-        tmp = Path("/tmp/centrol-npm")
-        tmp.mkdir(exist_ok=True)
-        for suf in ("", "-wal", "-shm"):
-            src, dst = Path(str(db) + suf), tmp / ("db.sqlite" + suf)
-            if src.exists():
-                shutil.copyfile(src, dst)
-            else:
-                dst.unlink(missing_ok=True)
-        con = sqlite3.connect(tmp / "db.sqlite")
-        con.row_factory = sqlite3.Row
+        if sig != self._db_sig:
+            self._db_cache, self._db_sig = SRC.npm_db(db, Path("/tmp/centrol-npm")), sig
+        return self._db_cache
+
+    async def _ssh_read(self, path: str) -> list:
+        """Fichiers de configuration du proxy sur l'hôte (Caddyfile, *.conf), lus par SSH avec le compte de Centrol."""
+        if not self.ssh:
+            return []
+        import shlex
+        d, pat = path.rsplit("/", 1)
+        cmd = (f"cd -- {shlex.quote(d or '/')} 2>/dev/null && for f in {pat if re.fullmatch(r'[A-Za-z0-9_.*?-]+', pat) else shlex.quote(pat)}; do "
+               "[ -f \"$f\" ] || continue; case \"$f\" in *.sample) continue;; esac; "
+               "printf '\\n\\036%s\\036\\n' \"$PWD/$f\"; head -c 1000000 -- \"$f\"; done")
+        code, out, _ = await self.ssh.run(cmd, timeout=20)
+        parts = out.decode(errors="ignore").split("\n\x1e")[1:]
+        res = []
+        for part in parts[:200]:
+            name, _, body = part.partition("\x1e\n")
+            res.append((name, body))
+        return res
+
+    async def _local_source(self, cfg: dict | None = None) -> tuple[list, dict]:
+        cfg = cfg if cfg is not None else (self.store.settings.get("proxy") or {})
+        kind, url = cfg.get("kind") or "auto", cfg.get("url") or ""
+        st = {"sid": "local", "kind": None, "detected": [k for k, _ in SRC.detect(self.raw)], "count": 0, "via": "",
+              "files": [], "error": None, "at": int(time.time()), "setting": kind}
         try:
-            rows = [dict(r) for r in con.execute("SELECT * FROM proxy_host WHERE is_deleted = 0")]
-        finally:
-            con.close()
-        out = []
-        for d in rows:
+            if kind == "npm" or (kind == "auto" and C.NPM_DB.exists() and C.NPM_DB.stat().st_size > 0):
+                items = await asyncio.to_thread(self._proxies)
+                st.update(kind="npm", via="base de données")
+            else:
+                loop = asyncio.get_running_loop()
+                read = lambda path: asyncio.run_coroutine_threadsafe(self._ssh_read(path), loop).result(25)  # noqa: E731
+                r = await asyncio.to_thread(SRC.collect, kind, url, [c for c in self.raw if c.get("State") == "running"],
+                                            None, Path("/tmp/centrol-px"), read)
+                items = r["proxies"]
+                st.update(kind=r["kind"], via=r["via"], files=r["files"])
+        except Exception as e:  # noqa: BLE001
+            items = []
+            st["error"] = str(e)[:200] or type(e).__name__
+        st["count"] = len(items)
+        return items, st
+
+    async def _remote_sources(self) -> list:
+        rem = getattr(self.mon, "remote", None) if self.mon else None
+        if not rem:
+            return []
+        out, now = [], time.time()
+
+        async def one(srv):
+            cfg = srv.get("proxy") or {}
+            st = {"sid": srv["id"], "server": srv["name"], "kind": None, "detected": [], "count": 0, "via": "", "files": [],
+                  "error": None, "at": int(now), "setting": cfg.get("kind") or "auto"}
+            if cfg.get("kind") == "none":
+                return [], st
+            if not rem.state.get(srv["id"], {}).get("ok"):
+                st["error"] = rem.state.get(srv["id"], {}).get("error") or "agent injoignable"
+                return [], st
+            cached = self._remote_px.get(srv["id"])
             try:
-                domains = [x for x in json.loads(d.get("domain_names") or "[]") if not x.startswith("*")]
-            except ValueError:
-                continue
-            if not domains:
-                continue
-            out.append({
-                "id": d.get("id"),
-                "domains": domains,
-                "domain": domains[0].lower(),
-                "forward_scheme": d.get("forward_scheme") or "http",
-                "forward_host": str(d.get("forward_host") or ""),
-                "forward_port": int(d.get("forward_port") or 0),
-                "certificate_id": int(d.get("certificate_id") or 0),
-                "enabled": bool(d.get("enabled", 1)),
-            })
-        self._db_sig, self._db_cache = sig, out
+                if cached and now - cached[0] < 20 and cached[2] == (cfg.get("kind"), cfg.get("url")):
+                    d = cached[1]
+                else:
+                    d = await rem.proxies(srv, cfg.get("kind") or "auto", cfg.get("url") or "")
+                    self._remote_px[srv["id"]] = (now, d, (cfg.get("kind"), cfg.get("url")))
+            except Exception as e:  # noqa: BLE001
+                st["error"] = str(e)[:200] or type(e).__name__
+                return [], st
+            items = [p for p in d.get("proxies") or [] if isinstance(p, dict) and p.get("domain")]
+            st.update(kind=d.get("kind"), detected=d.get("detected") or [], via=d.get("via", ""), files=d.get("files") or [],
+                      error=d.get("error"), count=len(items), old=d.get("old", False))
+            return items, st
+        for res in await asyncio.gather(*(one(s) for s in rem.servers())):
+            out.append(res)
         return out
+
+    def _cinfo_of(self, sid: str) -> list:
+        if sid == "local":
+            return self.cinfo
+        rem = getattr(self.mon, "remote", None)
+        return (rem.state.get(sid, {}) if rem else {}).get("cinfo", [])
+
+    def _find(self, p: dict) -> tuple:
+        """Conteneur derrière un hôte publié : d'abord sur la machine du proxy, puis sur la machine dont l'adresse est visée."""
+        c, how = match(p, self._cinfo_of(p["sid"])) if p["sid"] == "local" else \
+            _match_remote(p, self._cinfo_of(p["sid"]), self._agent_host(p["sid"]))
+        if c:
+            return c, how, p["sid"]
+        rem = getattr(self.mon, "remote", None)
+        fh = p["forward_host"].strip().lower()
+        for srv in rem.servers() if rem else []:
+            if srv["id"] != p["sid"] and (urlparse(srv["url"]).hostname or "").lower() == fh:
+                for c in self._cinfo_of(srv["id"]):
+                    if any(pub == p["forward_port"] for pub, _ in c["ports"]):
+                        return c, "port publié", srv["id"]
+        if p["sid"] != "local" and fh in C.HOST_ADDRS:          # proxy distant qui renvoie vers ce serveur-ci
+            for c in self.cinfo:
+                if any(pub == p["forward_port"] for pub, _ in c["ports"]):
+                    return c, "port publié", "local"
+        return None, None, p["sid"]
+
+    def _agent_host(self, sid: str) -> str | None:
+        rem = getattr(self.mon, "remote", None)
+        srv = next((s for s in rem.servers() if s["id"] == sid), None) if rem else None
+        return urlparse(srv["url"]).hostname if srv else None
 
     @staticmethod
     async def _probe(host: str, port: int) -> bool:
@@ -394,62 +483,86 @@ class Discovery:
         except Exception as e:
             cinfo, errors = [], [f"Docker : {e}"]
         self.cinfo = cinfo
-        try:
-            proxies = await asyncio.to_thread(self._proxies)
-        except Exception as e:
-            proxies = []
-            errors.append(f"NPM : {e}")
+        # toutes les sources d'applis : le proxy de ce serveur, puis celui de chaque autre machine (par son agent)
+        local_items, local_st = await self._local_source()
+        lists, states = [("local", local_items)], {"local": local_st}
+        for items, st in await self._remote_sources():
+            lists.append((st["sid"], items))
+            states[st["sid"]] = st
+        if local_st["error"] and (local_st["setting"] != "auto" or not any(x for _, x in lists[1:])):
+            errors.append(f"{SRC.LABELS.get(local_st['kind'] or 'npm', 'Proxy')} : {local_st['error']}")
+        proxies, dups = SRC.merge(lists)
+        self.sources = states
 
-        npm = next((c for c in cinfo if "nginx-proxy-manager" in c["image"] and c["running"]), None)
+        # par où passer pour vérifier un lien : le conteneur du proxy de ce serveur, ou l'adresse de l'autre machine
+        npm = None
+        for kind, c in SRC.detect(cinfo):
+            if kind == (local_st["kind"] or "npm"):
+                npm = c
+                break
         npm_ip = None
         if npm:
             npm_ip = npm["ips"].get(C.PROXY_NETWORK) or next(iter(npm["ips"].values()), None)
+        entry = {"local": npm_ip}
+        names = {"local": None}
+        rem = getattr(self.mon, "remote", None) if self.mon else None
+        for srv in rem.servers() if rem else []:
+            entry[srv["id"]], names[srv["id"]] = urlparse(srv["url"]).hostname, srv["name"]
 
-        matched = [(p, *match(p, cinfo)) for p in proxies]
+        matched = [(p, *self._find(p)) for p in proxies]
         to_probe = {(self._probe_host(p["forward_host"]), p["forward_port"])
-                    for p, c, _ in matched if p["enabled"] and not c}
+                    for p, c, _, _ in matched if p["enabled"] and not c and p["sid"] == "local"}
         probes = dict(zip(to_probe, await asyncio.gather(*(self._probe(h, pt) for h, pt in to_probe))))
 
         apps, diag_px, used = [], [], set()
-        for p, c, how in matched:
+        for p, c, how, csid in matched:
             key = p["domain"]
+            remote_c = c is not None and csid != "local"
+            cname = (f'{c["name"]}@{csid}' if remote_c else c["name"]) if c else None
             row = {"domain": key, "target": f'{p["forward_host"]}:{p["forward_port"]}',
-                   "container": c["name"] if c else None, "how": how}
-            if c and c["name"] in C.SELF_NAMES:
+                   "container": cname, "how": how, "sid": p["sid"], "source": p.get("source") or states[p["sid"]].get("kind")}
+            if c and c["name"] in C.SELF_NAMES and not remote_c:
                 diag_px.append({**row, "status": "centrol"})
                 continue
             if not p["enabled"]:
                 diag_px.append({**row, "status": "disabled"})
                 continue
             if c:
-                used.add(c["name"])
+                if not remote_c:
+                    used.add(c["name"])
                 visible = c["running"]
                 status = "visible" if visible else "stopped"
-            else:
+            elif p["sid"] == "local":
                 ok = probes.get((self._probe_host(p["forward_host"]), p["forward_port"]), False)
                 self.miss[key] = 0 if ok else self.miss.get(key, 0) + 1
                 visible = ok or (key in self.visible and self.miss[key] < 2)
                 status = "visible" if visible else "unreachable"
+            else:
+                visible, status = True, "visible"          # publié par l'autre machine, qui seule peut joindre la cible
             lk = self.links.get(key)
             diag_px.append({**row, "status": status, "link": lk[0] if lk else "unknown", "linkDetail": lk[1] if lk else ""})
             if not visible:
                 continue
 
-            scheme = "https" if p["certificate_id"] else "http"
+            scheme = "https" if (p.get("https") or p.get("certificate_id")) else "http"
             label = (c["labels"].get("centrol.name") if c else None)
             name = label or known(c, key, False)[0] or pretty(c["name"] if c else key.split(".")[0])
             fwd_host = self._probe_host(p["forward_host"])
-            upstream = f'{p["forward_scheme"]}://{fwd_host}:{p["forward_port"]}'
+            # cible joignable depuis Centrol seulement si le proxy est sur ce serveur
+            upstream = f'{p["forward_scheme"]}://{fwd_host}:{p["forward_port"]}' if p["sid"] == "local" else None
             app = {
                 "key": key, "name": name, "domain": key, "url": f"{scheme}://{key}",
-                "scheme": scheme, "container": c["name"] if c else None,
+                "scheme": scheme, "container": cname,
                 "image": c["image"] if c else None, "external": c is None,
-                "forward": row["target"],
+                "forward": row["target"], "source": row["source"] or "npm",
             }
+            host_sid = csid if c else p["sid"]
+            if host_sid != "local":
+                app["server"], app["sid"], app["remote"] = names.get(host_sid) or host_sid, host_sid, True
             if c:
                 from .dockerx import health
                 app["health"] = health(c)
-                app["update"] = bool(self.mon and self.mon.updates.get(c["name"]))
+                app["update"] = bool(not remote_c and self.mon and self.mon.updates.get(c["name"]))
             # intégration iframe
             ev = self.embed.get(key)
             if ev:
@@ -457,16 +570,16 @@ class Discovery:
             else:
                 app["embed"], app["embedReason"] = "unknown", ""
             if not ev or time.time() - ev[2] > EMBED_TTL:
-                self._schedule_embed(app, npm_ip, upstream)
+                self._schedule_embed(app, entry.get(p["sid"]), upstream)
             # le lien public (domaine -> NPM -> conteneur) donne-t-il la même page que le conteneur ?
             lk = self.links.get(key)
             app["link"], app["linkDetail"] = (lk[0], lk[1]) if lk else ("unknown", "")
             if not lk or time.time() - lk[2] > LINK_TTL:
-                self._schedule_link(app, npm_ip, upstream)
+                self._schedule_link(app, entry.get(p["sid"]), upstream, SRC.LABELS.get(states[p["sid"]].get("kind") or "", "Le proxy"))
             # icône
             cands = icon_candidates(c, key)
-            self.icons.want(key, cands, [f"{upstream}/favicon.ico", f"{upstream}/apple-touch-icon.png"],
-                            self.wake)
+            base = upstream or app["url"]
+            self.icons.want(key, cands, [f"{base}/favicon.ico", f"{base}/apple-touch-icon.png"], self.wake)
             app["icon"] = self.icons.url(key)
             apps.append(app)
 
@@ -493,7 +606,8 @@ class Discovery:
         self.diag = {"proxies": sorted(diag_px, key=lambda r: r["domain"]),
                      "unexposed": sorted(unexposed, key=lambda r: r["container"]),
                      "errors": errors, "at": int(time.time()),
-                     "npm": bool(proxies) or not errors, "centrol": self.centrol_host}
+                     "npm": bool(proxies) or not errors, "centrol": self.centrol_host,
+                     "sources": list(states.values()), "duplicates": dups}
         self._publish(apps)
 
     def _publish(self, apps):
@@ -531,8 +645,10 @@ class Discovery:
                 ext = {"sni_hostname": dom} if app["scheme"] == "https" else {}
                 r = await self.http.get(f'{app["scheme"]}://{npm_ip}{path}', headers={"Host": dom},
                                         extensions=ext)
-            else:
+            elif upstream:
                 r = await self.http.get(f"{upstream}{path}")
+            else:
+                r = await self.http.get(f'{app["url"]}{path}')
             reason = frame_verdict(r.headers, dom, self.centrol_host)
             if reason:
                 return ("blocked", reason)
@@ -546,7 +662,7 @@ class Discovery:
         return ("ok", "")
 
     # ------------------------------------------------------------------ lien public
-    def _schedule_link(self, app, npm_ip, upstream):
+    def _schedule_link(self, app, npm_ip, upstream, label="Nginx Proxy Manager"):
         key = app["key"]
         if key in self.links_pending:
             return
@@ -554,7 +670,7 @@ class Discovery:
 
         async def job():
             try:
-                verdict = await self._check_link(app, npm_ip, upstream)
+                verdict = await self._check_link(app, npm_ip, upstream, label)
             except Exception as e:  # noqa: BLE001
                 verdict = ("warn", f"Vérification impossible : {e.__class__.__name__}")
             old = self.links.get(key)
@@ -594,25 +710,28 @@ class Discovery:
             return r
         return r
 
-    async def _check_link(self, app, npm_ip, upstream):
-        """Compare la page servie par le domaine (via NPM) à celle du conteneur en direct.
+    async def _check_link(self, app, npm_ip, upstream, label="Nginx Proxy Manager"):
+        """Compare la page servie par le domaine (via le proxy) à celle du conteneur en direct.
         ok = même page ; warn = joignable mais différente, ou accès public douteux ; error = le lien ne marche pas."""
         dom = app["domain"]
-        try:
-            d = await self._fetch(upstream)
-            direct = (d.status_code, self._title(d))
-        except Exception:  # noqa: BLE001
-            direct = None
+        direct = None
+        if upstream:
+            try:
+                d = await self._fetch(upstream)
+                direct = (d.status_code, self._title(d))
+            except Exception:  # noqa: BLE001
+                direct = None
         if not npm_ip:
-            return ("error", "Nginx Proxy Manager est arrêté : le lien ne fonctionne pas")
+            return ("error", f"{label} est arrêté : le lien ne fonctionne pas")
+        short = "NPM" if label == "Nginx Proxy Manager" else label
         try:
             v = await self._fetch(f'{app["scheme"]}://{npm_ip}', host=dom, sni=dom if app["scheme"] == "https" else None)
         except Exception as e:  # noqa: BLE001
-            return ("error", f"NPM ne répond pas pour ce domaine ({e.__class__.__name__})")
+            return ("error", f"{short} ne répond pas pour ce domaine ({e.__class__.__name__})")
         if v.status_code in (502, 503, 504):
-            return ("error", f"NPM n’arrive pas à joindre le conteneur (erreur {v.status_code})")
-        if v.status_code == 404 and not direct:
-            return ("error", "NPM ne connaît pas ce domaine (404)")
+            return ("error", f"{short} n’arrive pas à joindre le conteneur (erreur {v.status_code})")
+        if v.status_code == 404 and not direct and upstream:
+            return ("error", f"{short} ne connaît pas ce domaine (404)")
         vt = self._title(v)
         if direct and direct[1] and vt and direct[1] != vt:
             return ("warn", f"Le lien affiche « {vt} » au lieu de « {direct[1]} »")
@@ -630,11 +749,11 @@ class Discovery:
         except httpx.ConnectError as e:
             msg = str(e).lower()
             what = "certificat invalide" if ("certificate" in msg or "ssl" in msg) else "adresse injoignable depuis le serveur (DNS ou box)"
-            return ("warn", f"Fonctionne via NPM, mais accès public : {what}")
+            return ("warn", f"Fonctionne via {short}, mais accès public : {what}")
         except httpx.TimeoutException:
-            return ("warn", "Fonctionne via NPM, mais l’accès public ne répond pas (délai dépassé)")
+            return ("warn", f"Fonctionne via {short}, mais l’accès public ne répond pas (délai dépassé)")
         except Exception as e:  # noqa: BLE001
-            return ("warn", f"Fonctionne via NPM, accès public non vérifié ({e.__class__.__name__})")
+            return ("warn", f"Fonctionne via {short}, accès public non vérifié ({e.__class__.__name__})")
         return ("ok", "Le lien affiche bien la même page que le conteneur")
 
     # ------------------------------------------------------------------ onglets personnels

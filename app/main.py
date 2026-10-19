@@ -30,7 +30,7 @@ from .terminals import Terminals
 from .updates import Updates
 from .activity import Activity, short_ua
 from .alerts import Alerts, clean_rules, send_webhook
-from .remote import Remote, clean_servers, public_servers
+from .remote import Remote, clean_proxy, clean_servers, public_servers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 # journaux utiles seulement : sans ça, chaque requête interne (statistiques Docker toutes les 5 s, SSH, accès HTTP)
@@ -102,6 +102,7 @@ hub, ssh = Hub(), SSH()
 disc = Discovery(store, hub)
 mon = DockerMon(disc, hub, ssh)
 disc.mon = mon
+disc.ssh = ssh
 host = HostMon(ssh, hub)
 terms = Terminals(ssh, store)
 updates = Updates(store, hub)
@@ -1445,22 +1446,70 @@ async def user_session_revoke(req: Request, s=Depends(require)):
 async def servers_get(s=Depends(require)):
     need_admin(s)
     return {"servers": public_servers(store.settings.get("servers", [])), "status": remote.status(),
-            "alert": store.settings.get("serverAlert") or {"notify": True, "webhook": ""}}
+            "alert": store.settings.get("serverAlert") or {"notify": True, "webhook": ""},
+            "proxy": store.settings.get("proxy") or {"kind": "auto", "url": ""}, "sources": list(disc.sources.values()),
+            "duplicates": disc.diag.get("duplicates", [])}
+
+
+def _proxy_set(p) -> bool:
+    return bool(p) and (p.get("kind", "auto") != "auto" or bool(p.get("url")))
 
 
 @app.post("/api/admin/servers")
 async def servers_set(req: Request, s=Depends(require)):
     need_admin(s)
     body = await req.json()
-    if "servers" in body:
-        store.settings["servers"] = clean_servers(body.get("servers"), store.settings.get("servers", []))
+    try:
+        new_local = clean_proxy(body["proxy"]) if "proxy" in body else None
+        new_srv = clean_servers(body.get("servers"), store.settings.get("servers", [])) if "servers" in body else None
+    except ValueError as e:
+        err(400, str(e))
+    # proxy déjà réglé à la main : le changer redemande le mot de passe (comme les blocs d'authentification)
+    old_local = store.settings.get("proxy") or {}
+    olds = {x["id"]: x.get("proxy") or {} for x in store.settings.get("servers", [])}
+    changed = (new_local is not None and _proxy_set(old_local) and new_local != clean_proxy(old_local)) or any(
+        _proxy_set(olds.get(x["id"])) and x["proxy"] != clean_proxy(olds.get(x["id"])) for x in new_srv or [])
+    if changed and not auth.get_elev(s["key"]):
+        err(403, "Proxy déjà réglé : entre ton mot de passe pour le modifier", "elevate")
+    if new_local is not None:
+        store.settings["proxy"] = new_local
+    if new_srv is not None:
+        store.settings["servers"] = new_srv
     if isinstance(body.get("alert"), dict):
         hook = str(body["alert"].get("webhook") or "").strip()[:500]
         if hook and not re.match(r"^https?://", hook):
             err(400, "Adresse de webhook invalide")
         store.settings["serverAlert"] = {"notify": body["alert"].get("notify") is not False, "webhook": hook}
     store.save_settings()
-    return {"servers": public_servers(store.settings["servers"])}
+    disc._remote_px.clear()
+    disc.wake()
+    return {"servers": public_servers(store.settings["servers"]), "proxy": store.settings.get("proxy")}
+
+
+@app.post("/api/admin/proxy-test")
+async def proxy_test(req: Request, s=Depends(require)):
+    """Essai d'un réglage de proxy sans l'enregistrer : type trouvé et applis lues."""
+    need_admin(s)
+    b = await req.json()
+    try:
+        cfg = clean_proxy(b)
+    except ValueError as e:
+        err(400, str(e))
+    sid = str(b.get("sid") or "local")
+    if sid == "local":
+        items, st = await disc._local_source(cfg)
+    else:
+        srv = next((x for x in remote.servers() if x["id"] == sid), None)
+        if not srv:
+            err(404, "Serveur introuvable")
+        try:
+            d = await remote.proxies(srv, cfg["kind"], cfg["url"])
+            items = d.get("proxies") or []
+            st = {"kind": d.get("kind"), "detected": d.get("detected") or [], "via": d.get("via", ""),
+                  "files": d.get("files") or [], "error": d.get("error"), "old": d.get("old", False)}
+        except Exception as e:  # noqa: BLE001
+            items, st = [], {"kind": None, "detected": [], "via": "", "files": [], "error": str(e)[:200]}
+    return {**st, "count": len(items), "domains": sorted(p.get("domain", "") for p in items)[:12]}
 
 
 @app.post("/api/admin/servers/test")

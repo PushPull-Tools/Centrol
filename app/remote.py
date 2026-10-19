@@ -50,8 +50,22 @@ def clean_servers(raw, old=None) -> list:
         ids.add(sid)
         token = str(s.get("token") or "").strip() or (old.get(sid) or {}).get("token", "")
         out.append({"id": sid, "name": str(s.get("name") or u.hostname).strip()[:40], "url": url[:200],
-                    "token": token[:200], "enabled": s.get("enabled", True) is not False})
+                    "token": token[:200], "enabled": s.get("enabled", True) is not False,
+                    "proxy": clean_proxy(s.get("proxy", (old.get(sid) or {}).get("proxy")))})
     return out
+
+
+PROXY_KINDS = ("auto", "none", "npm", "traefik", "caddy", "nginx", "swag")
+
+
+def clean_proxy(p) -> dict:
+    """Proxy d'une machine : type (auto par défaut) + adresse de son interface (Traefik, Caddy), facultative."""
+    p = p if isinstance(p, dict) else {}
+    kind = p.get("kind") if p.get("kind") in PROXY_KINDS else "auto"
+    url = str(p.get("url") or "").strip().rstrip("/")[:200]
+    if url and not re.match(r"^https?://[^\s/]+", url):
+        raise ValueError("Adresse du proxy invalide (http://hôte:port)")
+    return {"kind": kind, "url": url if kind in ("traefik", "caddy") else ""}
 
 
 def public_servers(servers: list) -> list:
@@ -76,6 +90,17 @@ class Remote:
             raise RuntimeError("jeton refusé")
         r.raise_for_status()
         return r
+
+    async def proxies(self, srv: dict, kind: str = "auto", url: str = "") -> dict:
+        """Applis publiées par le proxy de cette machine, lues par son agent (agent 1.0 : NPM seulement)."""
+        params = {"kind": kind or "auto"}
+        if url:
+            params["url"] = url
+        d = (await self.get(srv, "/v1/proxies", **params)).json()
+        if isinstance(d, list):                      # ancien agent : liste NPM brute
+            return {"kind": "npm" if d else None, "detected": [], "proxies": d, "files": [], "via": "base de données",
+                    "old": True}
+        return d
 
     async def test(self, srv: dict) -> dict:
         try:

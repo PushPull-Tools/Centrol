@@ -88,7 +88,7 @@ export function appMenu(a, x, y) {
       tip: 'Pour un site qui ne s’adapte pas à la fenêtre : affiche la page en plus petit ou plus grand, pour toi seul', action: () => zoomDialog(a)} : null,
     ...(a.container && can('supervision') ? ['-', {head: 'Conteneur · ' + a.container},
       {label: 'Supervision', icon: 'pulse', action: () => emit('sup.open', a.container)},
-      ...(S.me.admin || (S.me.control || []).includes(a.container) ? [
+      ...(!a.remote && (S.me.admin || (S.me.control || []).includes(a.container)) ? [
         {label: 'Redémarrer', icon: 'refresh', action: () => emit('sup.act', [a.container, 'restart'])},
         {label: 'Arrêter', icon: 'stop', danger: true, action: () => emit('sup.act', [a.container, 'stop'])},
         a.update && S.me.admin ? {label: 'Mettre à jour', icon: 'download', action: () => emit('sup.act', [a.container, 'update'])} : null] : [])] : []),

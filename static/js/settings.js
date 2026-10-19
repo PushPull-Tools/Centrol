@@ -773,7 +773,7 @@ const BUILD = {
       const tok = h('input', {class: 'inp mono', type: 'password', autocomplete: 'off', placeholder: x.hasToken ? 'inchangé' : 'Jeton affiché par install-agent.sh'});
       const res = h('p', {class: 'hint'});
       return modal({title: isNew ? 'Ajouter un serveur' : 'Modifier le serveur', body: [
-        h('p', {class: 'hint', text: 'Sur l’autre serveur, copie le dossier « agent » de Centrol puis lance : sudo ./install-agent.sh. Il affiche l’adresse et le jeton à coller ici. L’agent ne fait que lire (conteneurs, statistiques, journaux) : aucune action possible à distance.'}),
+        h('p', {class: 'hint', text: 'Sur l’autre serveur, copie le dossier « agent » de Centrol puis lance : sudo ./install-agent.sh. Il affiche l’adresse et le jeton à coller ici. L’agent ne fait que lire (conteneurs, statistiques, journaux, applis de son proxy) : aucune action possible à distance.'}),
         h('label', {class: 'fld'}, h('span', {text: 'Nom'}), name),
         h('label', {class: 'fld'}, h('span', {text: 'Adresse de l’agent'}), url),
         h('label', {class: 'fld'}, h('span', {text: 'Jeton'}), h('div', {class: 'row'}, tok,
@@ -793,7 +793,7 @@ const BUILD = {
         await save();
       }});
     };
-    const paint = () => {
+    let paint = () => {
       const stOf = (id) => (d.status || []).find((y) => y.id === id) || {};
       box.replaceChildren(list.length ? h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'},
         h('thead', null, h('tr', null, ...['Serveur', 'Adresse', 'État', ''].map((t) => h('th', {text: t})))),
@@ -811,7 +811,87 @@ const BUILD = {
     const al = {...d.alert};
     const hook = h('input', {class: 'inp mono', value: al.webhook || '', placeholder: 'https://ntfy.sh/mon-sujet  ·  Gotify, Matrix, Discord, Slack…'});
     const saveAlert = async () => { try { await api('POST', '/api/admin/servers', {alert: {notify: al.notify, webhook: hook.value.trim()}}); toast('Alerte enregistrée'); } catch (e) { toastErr(e); throw e; } };
-    c.append(section('Autres serveurs', 'Ajoute d’autres machines à la Supervision, en lecture seule, grâce à un petit agent installé sur chacune : leurs conteneurs (statistiques, journaux, alertes) et l’état de la machine (processeur, mémoire, disques, réseau). Seuls les administrateurs les voient.',
+    // ---- sources des applis : le proxy de chaque machine (NPM, Traefik, Caddy, Nginx, SWAG)
+    const PX = {auto: 'Automatique', npm: 'Nginx Proxy Manager', traefik: 'Traefik', caddy: 'Caddy', nginx: 'Nginx', swag: 'SWAG', none: 'Ne pas lire'};
+    const pxBox = h('div');
+    const pxCfg = (sid) => (sid === 'local' ? d.proxy : (list.find((x) => x.id === sid) || {}).proxy) || {kind: 'auto', url: ''};
+    const pxSet = (p) => !!p && ((p.kind || 'auto') !== 'auto' || !!p.url);
+    const pxEdit = async (sid, label) => {
+      const cfg = {...pxCfg(sid)};
+      const elev = await quiet(api('GET', '/api/fs/elevation')) || {};
+      let locked = pxSet(cfg) && !elev.remaining;
+      const kind = h('select', {class: 'inp'}, ...Object.entries(PX).map(([k, v]) => h('option', {value: k, selected: k === (cfg.kind || 'auto'), text: v})));
+      const url = h('input', {class: 'inp mono', value: cfg.url || '', spellcheck: 'false'});
+      const urlRow = h('label', {class: 'fld'}, h('span', {text: 'Adresse de son interface (facultatif)'}), url,
+        h('small', {class: 'hint'}));
+      const res = h('div', {class: 'hint'});
+      const lockBar = h('div', {class: 'lockbar open'}, h('span', {text: 'Proxy déjà réglé : entre ton mot de passe pour le modifier.'}),
+        h('button', {class: 'btn sm', onclick: async () => { if (await elevatePrompt('Modifier le proxy demande ton mot de passe.')) { locked = false; sync(); } }}, 'Déverrouiller'));
+      const sync = () => {
+        const k = kind.value;
+        urlRow.hidden = !['traefik', 'caddy'].includes(k);
+        url.placeholder = k === 'traefik' ? 'http://traefik:8080' : 'http://caddy:2019';
+        urlRow.querySelector('small').textContent = tr(k === 'traefik'
+          ? 'Vide : Centrol lit les étiquettes Docker des conteneurs. Avec l’adresse de l’API de Traefik (api.insecure ou un routeur dédié), il voit aussi les routes déclarées en fichiers.'
+          : 'Vide : Centrol lit le Caddyfile trouvé dans les volumes du conteneur. Avec l’adresse de l’interface d’administration (admin 0.0.0.0:2019), il lit la configuration complète.');
+        kind.disabled = url.disabled = locked;
+        lockBar.hidden = !locked;
+      };
+      kind.addEventListener('change', sync);
+      sync();
+      const test = async () => {
+        res.replaceChildren(h('span', {text: 'Test…'}));
+        try {
+          const r = await api('POST', '/api/admin/proxy-test', {sid, kind: kind.value, url: url.value.trim()});
+          res.replaceChildren(r.error ? h('p', {style: {color: 'var(--danger)'}, text: tr('Échec : {0}').replace('{0}', r.error)})
+            : !r.kind ? h('p', {text: r.detected && r.detected.length ? 'Aucun proxy lisible.' : 'Aucun proxy détecté sur cette machine.'})
+            : h('div', null, h('p', {style: {color: r.count ? 'var(--ok)' : 'var(--warn)'}, text: tr('{0} : {1} applis trouvées ({2})').replace('{0}', PX[r.kind] || r.kind).replace('{1}', r.count).replace('{2}', tr(r.via || ''))}),
+              r.domains.length ? h('p', {class: 'mono', notr: true, text: r.domains.join('  ·  ') + (r.count > r.domains.length ? '  …' : '')}) : null,
+              r.files && r.files.length ? h('p', {class: 'muted', notr: true, text: r.files.slice(0, 6).join('  ·  ')}) : null,
+              r.old ? h('p', {class: 'warn', text: 'Agent ancien (1.0) : il ne lit que NPM. Mets-le à jour pour Traefik, Caddy, Nginx et SWAG.'}) : null));
+        } catch (e) { res.replaceChildren(h('p', {style: {color: 'var(--danger)'}, text: e.message})); }
+      };
+      return modal({title: sid === 'local' ? tr('Proxy de ce serveur') : tr('Proxy de {0}').replace('{0}', label), body: [
+        h('p', {class: 'hint', text: 'Centrol lit les applis publiées par ce proxy. « Automatique » le reconnaît à son image Docker ; choisis-le à la main seulement si la détection se trompe.'}),
+        lockBar,
+        h('label', {class: 'fld'}, h('span', {text: 'Proxy'}), kind), urlRow,
+        h('div', {class: 'actions'}, h('button', {class: 'btn sm', onclick: test}, 'Tester')), res],
+      onOk: async () => {
+        const p = {kind: kind.value, url: ['traefik', 'caddy'].includes(kind.value) ? url.value.trim() : ''};
+        await withAdmin(async () => {
+          if (sid === 'local') d.proxy = (await api('POST', '/api/admin/servers', {proxy: p})).proxy;
+          else {
+            const next = list.map((x) => (x.id === sid ? {...x, proxy: p} : x));
+            list = (await api('POST', '/api/admin/servers', {servers: next})).servers;
+          }
+        }, 'Modifier le proxy demande ton mot de passe.');
+        toast('Proxy enregistré');
+        setTimeout(reload, 4000);
+        pxPaint();
+      }});
+    };
+    const pxPaint = () => {
+      const srcOf = (sid) => (d.sources || []).find((y) => y.sid === sid) || {};
+      const rows = [['local', tr('Ce serveur')], ...list.filter((x) => x.enabled).map((x) => [x.id, x.name])];
+      const dups = d.duplicates || [];
+      pxBox.replaceChildren(h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'},
+        h('thead', null, h('tr', null, ...['Machine', 'Proxy', 'Applis', ''].map((t) => h('th', {text: t})))),
+        h('tbody', null, rows.map(([sid, label]) => {
+          const st = srcOf(sid), cfg = pxCfg(sid);
+          const what = cfg.kind && cfg.kind !== 'auto' ? PX[cfg.kind] : st.kind ? tr('{0} (détecté)').replace('{0}', PX[st.kind] || st.kind) : tr('aucun détecté');
+          return h('tr', null,
+            h('td', null, h('b', {notr: true, text: label})),
+            h('td', null, h('span', {text: what}), st.via ? h('small', {class: 'muted', text: ' · ' + tr(st.via)}) : null),
+            h('td', null, st.error ? h('span', {class: 'pill ko', title: st.error, text: 'Erreur'}) : st.kind ? h('span', {class: 'pill ok', text: String(st.count || 0)}) : h('span', {class: 'muted', text: '—'})),
+            h('td', {class: 'acts'}, h('button', {class: 'ibtn', title: 'Régler', html: ic('edit', 15), onclick: () => pxEdit(sid, label)})));
+        })))),
+        dups.length ? h('p', {class: 'hint warn', text: tr('Publié par deux proxys (le premier est gardé) : {0}').replace('{0}', dups.map((x) => x.domain).join(', '))}) : null);
+    };
+    pxPaint();
+    const paint0 = paint;
+    paint = () => { paint0(); pxPaint(); };
+    c.append(section('Sources des applis', 'Les applis viennent du proxy de chaque machine : Nginx Proxy Manager, Traefik, Caddy, Nginx ou SWAG. Il est détecté tout seul ; règle-le ici seulement si besoin. Les autres machines sont lues par leur agent.', pxBox));
+    c.append(section('Autres serveurs', 'Ajoute d’autres machines, en lecture seule, grâce à un petit agent installé sur chacune : leurs applis (lues dans leur proxy), leurs conteneurs (statistiques, journaux, alertes) et l’état de la machine (processeur, mémoire, disques, réseau).',
       h('div', {class: 'actions'}, h('button', {class: 'btn primary', html: ic('plus', 15) + '<span>Ajouter un serveur</span>', onclick: () => edit(null)})), box,
       fold('Alerte si un serveur ne répond plus', false,
         h('p', {class: 'hint', text: 'Après 1 minute sans réponse, puis quand il revient.'}),
@@ -827,16 +907,16 @@ const BUILD = {
         onclick: async () => { try { await api('POST', '/api/recheck'); toast('Vérification relancée : résultat dans quelques secondes', 'info'); } catch (e) { toastErr(e); } }})), box));
     if (S.me.admin) {
       const st = (await api('GET', '/api/admin')).settings;
-      c.append(section('Vérification des liens', 'Toutes les 2 minutes, Centrol compare la page de chaque domaine (via NPM) à celle du conteneur : vert = même page, orange = page différente, rouge = lien en panne.',
+      c.append(section('Vérification des liens', 'Toutes les 2 minutes, Centrol compare la page de chaque domaine (via le proxy) à celle du conteneur : vert = même page, orange = page différente, rouge = lien en panne.',
         opt('Vérifier aussi l’accès depuis Internet', 'À activer seulement si tes applis sont publiques : teste le DNS et le certificat comme un visiteur extérieur. Laisse désactivé si tu passes par un VPN ou en local.',
           sw(!!st.linkPublic, async (v) => { try { await api('POST', '/api/admin/settings', {linkPublic: v}); toast('Enregistré : vérification relancée'); } catch (e) { toastErr(e); throw e; } }, 'Accès depuis Internet'))));
     }
     const d = await api('GET', '/api/diag');
-    const label = {visible: ['ok', 'Affiché'], stopped: ['ko', 'Conteneur arrêté'], unreachable: ['ko', 'Injoignable'], disabled: ['warn', 'Désactivé dans NPM'], centrol: ['ok', 'Centrol']};
+    const label = {visible: ['ok', 'Affiché'], stopped: ['ko', 'Conteneur arrêté'], unreachable: ['ko', 'Injoignable'], disabled: ['warn', 'Désactivé dans le proxy'], centrol: ['ok', 'Centrol']};
     const embed = Object.fromEntries(S.apps.map((a) => [a.key, a.embed === 'blocked' ? (a.embedReason === 'http' ? 'HTTP' : 'Refusée') : a.embed === 'ok' ? 'OK' : '…']));
     box.replaceChildren(
       ...(d.errors || []).map((e) => h('p', {class: 'banner warn', text: e})),
-      h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'}, h('thead', null, h('tr', null, ...['Domaine', 'Cible NPM', 'Conteneur', 'État', 'Lien', 'Intégration'].map((t) => h('th', {text: t})))),
+      h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'}, h('thead', null, h('tr', null, ...['Domaine', 'Cible', 'Conteneur', 'État', 'Lien', 'Intégration'].map((t) => h('th', {text: t})))),
         h('tbody', null, d.proxies.map((r) => h('tr', null, h('td', {text: r.domain}), h('td', {class: 'mono', text: r.target}),
           h('td', {class: 'mono', text: r.container ? `${r.container}${r.how ? ' (' + r.how + ')' : ''}` : '—'}),
           h('td', null, h('span', {class: 'pill ' + (label[r.status] || ['', r.status])[0], text: (label[r.status] || ['', r.status])[1]})),
@@ -845,7 +925,7 @@ const BUILD = {
           h('td', {class: 'mono', text: embed[r.domain] || '—'})))))),
       h('h4', {text: 'Conteneurs avec ports publiés mais sans hôte proxy'}),
       d.unexposed.length ? h('table', {class: 'tbl'}, h('tbody', null, d.unexposed.map((u) => h('tr', null, h('td', {text: u.container}), h('td', {class: 'mono', text: u.ports.join(', ')}), h('td', {class: 'mono', text: u.image})))))
-        : h('p', {class: 'muted', text: 'Aucun : tout ce qui est publié passe par NPM.'}));
+        : h('p', {class: 'muted', text: 'Aucun : tout ce qui est publié passe par le proxy.'}));
   },
   async updates(c) {
     const d = await api('GET', '/api/admin');

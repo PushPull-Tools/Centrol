@@ -24,6 +24,7 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). Tant qu
   - favoris et filtre « Favoris » ;
   - vignettes « icône » pour les petites connexions, rafraîchissement réglable ;
   - catégories pliables.
+- **Sources d'applis :** Nginx Proxy Manager, Traefik (étiquettes Docker ou API), Caddy (Caddyfile ou API), Nginx et SWAG, détectés tout seuls ; le proxy des autres machines est lu par leur agent et chaque appli est rattachée à son conteneur, où qu'il tourne.
 - **Côte à côte :** deux fenêtres affichées ensemble (glisser un onglet sur la moitié gauche ou droite).
 - **Onglets personnels :** n'importe quel site, avec récupération de l'icône.
 - **Supervision :**
