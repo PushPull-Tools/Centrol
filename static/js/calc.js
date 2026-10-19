@@ -3,7 +3,7 @@ import {h, ic, lstore, toast} from './core.js';
 
 // ------------------------------------------------------------------ calcul
 // grammaire : expr = terme (('+'|'-') terme)* ; terme = facteur (('*'|'/'|'%') facteur)* ;
-// facteur = unaire ('^' facteur)? ; unaire = ('-'|'+') unaire | primaire '%'? ; primaire = nombre | '(' expr ')' | fonction '(' expr ')'
+// facteur = ('-'|'+') facteur | unaire ('^' facteur)? ; unaire = primaire '%'? ; primaire = nombre | '(' expr ')' | fonction '(' expr ')'
 const FN = {sqrt: Math.sqrt, '√': Math.sqrt, abs: Math.abs, round: Math.round, ln: Math.log, log: Math.log10, sin: Math.sin, cos: Math.cos, tan: Math.tan};
 export function evaluate(src) {
   const s = String(src).replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/\s+/g, '').replace(/,/g, '.');
@@ -23,10 +23,12 @@ export function evaluate(src) {
       else return v;
     }
   }
-  function factor() { const b = unary(); return eat('^') ? b ** factor() : b; }
+  function factor() {        // le signe s'applique après la puissance : -2^2 = -4 (comme en maths)
+    if (eat('-')) return -factor();
+    if (eat('+')) return factor();
+    const b = unary(); return eat('^') ? b ** factor() : b;
+  }
   function unary() {
-    if (eat('-')) return -unary();
-    if (eat('+')) return unary();
     let v = primary();
     if (peek() === '%' && !/[\d.(]/.test(s[i + 1] || '')) { i++; v /= 100; }   // 20% -> 0,2
     return v;
@@ -36,7 +38,7 @@ export function evaluate(src) {
     const m = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(s.slice(i));
     if (m) { i += m[0].length; return parseFloat(m[0]); }
     const f = /^(sqrt|√|abs|round|ln|log|sin|cos|tan)/.exec(s.slice(i));
-    if (f) { i += f[0].length; if (f[0] === '√' && peek() !== '(') return Math.sqrt(unary()); if (!eat('(')) fail(); const v = expr(); if (!eat(')')) fail(); return FN[f[0]](v); }
+    if (f) { i += f[0].length; if (f[0] === '√' && peek() !== '(') return Math.sqrt(factor()); if (!eat('(')) fail(); const v = expr(); if (!eat(')')) fail(); return FN[f[0]](v); }
     if (s.slice(i, i + 2) === 'pi' || peek() === 'π') { i += peek() === 'π' ? 1 : 2; return Math.PI; }
     return fail();
   }

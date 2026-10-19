@@ -693,6 +693,8 @@ def access_label(rule: dict | None) -> str:
     if not rule:
         return ""
     d = rule["days"]
+    if not d:
+        return "aucun jour"
     days = "tous les jours" if len(d) == 7 else (f"{DAYS_FR[d[0]]}–{DAYS_FR[d[-1]]}" if d == list(range(d[0], d[-1] + 1)) else ", ".join(DAYS_FR[i] for i in d))
     hm = lambda t: f"{int(t[:2])} h" + ("" if t[3:] == "00" else f" {t[3:]}")   # 09:00 -> 9 h ; 17:30 -> 17 h 30
     return f"{days}, {hm(rule['start'])} – {hm(rule['end'])}"

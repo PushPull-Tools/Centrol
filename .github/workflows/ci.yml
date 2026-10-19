@@ -15,14 +15,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Dépendances
+        run: |
+          pip install -r requirements.txt pytest pytest-playwright
+          python -m playwright install --with-deps chromium
       - name: Python
         run: |
-          pip install -r requirements.txt
           python -m compileall -q app
           CENTROL_DATA=/tmp/centrol python -c "import app.main"
+      - name: Tests (connexion, droits, SSO, interface dans Chromium)
+        run: python -m pytest
       - name: JavaScript
-        run: for f in static/js/*.js; do cp "$f" /tmp/m.mjs && node --check /tmp/m.mjs || exit 1; done
+        run: |
+          for f in static/js/*.js; do cp "$f" /tmp/m.mjs && node --check /tmp/m.mjs || exit 1; done
+          node --import ./tests/js/shim.mjs --test tests/js/*.test.mjs
       - name: Installeur
         run: bash -n install.sh
       - name: Image Docker
         run: docker build -t centrol:ci .
+      - name: L'image démarre et répond
+        run: |
+          docker run -d --name ci-centrol --tmpfs /data:uid=1000 centrol:ci
+          for i in $(seq 1 30); do docker exec ci-centrol python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8322/healthz')" && exit 0; sleep 1; done
+          docker logs ci-centrol; exit 1
