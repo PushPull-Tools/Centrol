@@ -22,7 +22,8 @@ class View {
     this.t.onData((d) => { if (this.ws && this.ws.readyState === 1) this.ws.send(enc.encode(d)); });
     this.t.attachCustomKeyEventHandler((e) => {
       if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyC' && this.t.hasSelection()) { navigator.clipboard.writeText(this.t.getSelection()); return false; }
-      if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyV') { navigator.clipboard.readText().then((t) => this.ws && this.ws.send(enc.encode(t))); return false; }
+      // Ctrl+Maj+V : collage natif du navigateur (xterm le reçoit tel quel), sans demander l'accès au presse-papiers
+      if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyV') return false;
       return true;
     });
     this.opened = false;
