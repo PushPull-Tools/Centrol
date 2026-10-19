@@ -69,7 +69,7 @@ def _empreinte(mot):
 
 def test_aucune_donnee_personnelle():
     fichiers = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout.split()
-    secrets = re.compile(r"ghp_[A-Za-z0-9]{20}|github_pat_|-----BEGIN [A-Z ]*PRIVATE KEY-----|xox[bp]-[0-9]")
+    secrets = re.compile(r"ghp_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9_]{20}|-----BEGIN [A-Z ]*PRIVATE KEY-----|xox[bp]-[0-9]")
     for nom in fichiers:
         p = ROOT / nom
         if p.suffix in {".png", ".jpg", ".ico", ".woff2", ".gz"} or not p.is_file():

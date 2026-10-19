@@ -8,11 +8,11 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v4
+          python-version: "3.14"
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Dépendances
@@ -38,3 +38,17 @@ jobs:
           docker run -d --name ci-centrol --tmpfs /data:uid=1000 centrol:ci
           for i in $(seq 1 30); do docker exec ci-centrol python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8322/healthz')" && exit 0; sleep 1; done
           docker logs ci-centrol; exit 1
+
+  desktop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - run: npm install
+      - name: Le client de bureau se construit (sans publier)
+        run: npx electron-builder --linux dir --publish never

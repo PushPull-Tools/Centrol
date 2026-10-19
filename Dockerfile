@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="Centrol" \
       org.opencontainers.image.description="Toutes les interfaces web du serveur dans une seule fenêtre" \

@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-V1-7c9cff">
   <img alt="Docker" src="https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.14-3776AB?logo=python&logoColor=white">
   <img alt="Licence" src="https://img.shields.io/badge/licence-source%20disponible-lightgrey">
 </p>
 
