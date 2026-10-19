@@ -87,3 +87,18 @@ def test_reglage_du_proxy_verrouille(admin):
 
 def test_reglage_reserve_aux_admins(alice):
     assert alice.post("/api/admin/proxy-test", json={"kind": "auto"}, headers={"x-centrol": "1"}).status_code == 403
+
+
+def test_page_d_erreur_du_proxy_pas_retenue():
+    """Au démarrage du serveur, le proxy renvoie une page d'erreur (502) qui peut interdire l'intégration :
+    ce n'est pas l'avis de l'appli, on revérifie vite au lieu de la bloquer pendant 15 minutes."""
+    d = M.disc
+    pages = iter([httpx.Response(502, headers={"x-frame-options": "DENY"}), httpx.Response(200)])
+    old = d.http
+    d.http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: next(pages)))
+    app = {"key": "nc.ex.org", "domain": "nc.ex.org", "scheme": "https", "url": "https://nc.ex.org"}
+    try:
+        assert asyncio.run(d._check_embed(app, "172.20.0.2", None))[0] == "retry"
+        assert asyncio.run(d._check_embed(app, "172.20.0.2", None)) == ("ok", "")
+    finally:
+        d.http = old

@@ -270,6 +270,7 @@ class Discovery:
         self.raw: list[dict] = []       # conteneurs tels que Docker les décrit (étiquettes, volumes)
         self.sources: dict[str, dict] = {}      # machine -> {kind, detected, count, via, files, error, at}
         self._remote_px: dict[str, tuple] = {}  # machine distante -> (horodatage, réponse de l'agent)
+        self._started: dict[str, str] = {}      # appli -> conteneur vu en marche (recréé : vérifications relancées)
 
     # -- appelé par les requêtes HTTP quand CENTROL_URL n'est pas défini
     def note_host(self, request):
@@ -531,6 +532,11 @@ class Discovery:
                 if not remote_c:
                     used.add(c["name"])
                 visible = c["running"]
+                if visible and self._started.get(key) not in (None, c.get("id")):
+                    self.embed.pop(key, None)                # conteneur recréé : intégration et lien revérifiés
+                    self.links.pop(key, None)
+                if visible:
+                    self._started[key] = c.get("id")
                 status = "visible" if visible else "stopped"
             elif p["sid"] == "local":
                 ok = probes.get((self._probe_host(p["forward_host"]), p["forward_port"]), False)
@@ -629,8 +635,15 @@ class Discovery:
             try:
                 verdict = await self._check_embed(app, npm_ip, upstream)
             except Exception as e:
-                verdict = ("unknown", str(e)[:120])
-            self.embed[key] = (*verdict, time.time())
+                verdict = ("retry", str(e)[:120])
+            if verdict[0] == "retry":
+                # appli pas encore prête (démarrage du serveur, redémarrage) : on garde l'avis précédent
+                # et on revérifie dans 30 s, au lieu de retenir pendant 15 min une page d'erreur du proxy
+                old = self.embed.get(key)
+                verdict = old[:2] if old else ("unknown", verdict[1])
+                self.embed[key] = (*verdict, time.time() - EMBED_TTL + 30)
+            else:
+                self.embed[key] = (*verdict, time.time())
             self.embed_pending.discard(key)
             self.wake()
 
@@ -649,6 +662,8 @@ class Discovery:
                 r = await self.http.get(f"{upstream}{path}")
             else:
                 r = await self.http.get(f'{app["url"]}{path}')
+            if r.status_code >= 500:
+                return ("retry", f"erreur {r.status_code}")
             reason = frame_verdict(r.headers, dom, self.centrol_host)
             if reason:
                 return ("blocked", reason)
