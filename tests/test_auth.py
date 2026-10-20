@@ -115,3 +115,28 @@ def test_theme_et_langue_libres_pour_chacun(alice):
 def test_preference_invalide_refusee(alice):
     r = alice.post("/api/profile", json={"op": "prefs.set", "theme": "<script>"}, headers=HDR)
     assert r.status_code == 400 or r.json()["prefs"]["theme"] != "<script>"
+
+
+def test_duree_du_mode_administrateur(alice):
+    alice.post("/api/profile", json={"op": "prefs.set", "elevKeep": 5}, headers=HDR)
+    r = alice.post("/api/fs/elevate", json={"password": "alicepw12"}, headers=HDR).json()
+    assert 0 < r["remaining"] <= 300 and r["session"] is False
+    alice.post("/api/profile", json={"op": "prefs.set", "elevKeep": 0}, headers=HDR)
+    r = alice.post("/api/fs/elevate", json={"password": "alicepw12"}, headers=HDR).json()
+    assert r["session"] is True and alice.get("/api/fs/elevation").json()["session"] is True
+    assert alice.post("/api/profile", json={"op": "prefs.set", "elevKeep": 7}, headers=HDR).status_code == 400 or \
+        M.store.profile("alice")["prefs"]["elevKeep"] == 0
+
+
+def test_jamais_redemande_des_la_connexion():
+    import time as _t
+    M.store.profile("alice")["prefs"]["elevKeep"] = -1
+    c = login("alice", "alicepw12")
+    for _ in range(30):
+        if c.get("/api/fs/elevation").json()["remaining"]:
+            break
+        _t.sleep(0.1)
+    e = c.get("/api/fs/elevation").json()
+    assert e["remaining"] > 0 and e["session"] is True
+    assert c.post("/api/logout", headers=HDR).status_code == 200
+    assert not M.auth.elev                                 # la déconnexion efface le mot de passe gardé en mémoire

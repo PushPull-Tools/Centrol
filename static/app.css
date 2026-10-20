@@ -1115,3 +1115,11 @@ pre.code.secret { color: var(--warn); }
    au retour, rien qui saute). Leurs champs de connexion sont hors écran : les extensions de mots de passe (Bitwarden /
    Vaultwarden) ne peuvent plus afficher leurs propositions par-dessus l'onglet ouvert. La page reste chargée et active. */
 body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
+/* gestion Docker avancée */
+.dk-tools { display: flex; gap: 6px; margin: 6px 0 2px; }
+.code-ed { width: 100%; min-height: 46vh; font-size: 12.5px; line-height: 1.5; tab-size: 2; resize: vertical; white-space: pre; }
+.tbl.kv th { width: 34%; text-align: left; color: var(--muted); font-weight: 500; }
+.tbl.kv td { word-break: break-all; }
+.trow.danger b { color: var(--danger); }
+.modal h4 { margin: 14px 0 6px; font-size: 13px; }
+.trow.danger small { white-space: normal; color: var(--danger); }

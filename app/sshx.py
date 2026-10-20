@@ -120,6 +120,11 @@ class SSH:
         code, _, _ = await self.run("true", sudo=pw, as_user=who, timeout=15)
         return code == 0
 
+    async def pty(self, cmd: str, cols: int, rows: int):
+        """Commande dans un vrai terminal (console d'un conteneur)."""
+        c = await self.conn()
+        return await c.create_process(cmd, term_type="xterm-256color", term_size=(cols, rows), encoding=None)
+
     async def shell(self, cols: int, rows: int, as_user: str | None = None):
         c = await self.conn()
         cmd = None if not as_user or as_user == C.SSH_USER else f"sudo -n -u {q(as_user)} -i"

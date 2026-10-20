@@ -29,10 +29,12 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). Tant qu
 - **Onglets personnels :** n'importe quel site, avec récupération de l'icône.
 - **Supervision :**
   - vue globale du serveur (CPU, mémoire, température, disques, réseau par interface) ;
-  - graphiques par conteneur et actions démarrer / arrêter / redémarrer / mettre à jour ;
+  - graphiques par conteneur et actions démarrer / arrêter / redémarrer / mettre à jour / supprimer ;
+  - console dans un conteneur, fiche détaillée, stacks docker compose (modifier, redéployer, créer), ménage (prune) ;
   - journaux Docker fusionnés ou côte à côte, téléchargeables, avec coloration JSON et niveaux ; journaux système ;
   - alertes sur les journaux (notification dans Centrol, webhook ntfy, Gotify, Matrix, Discord, Slack…) ;
   - autres serveurs en lecture seule grâce à Centrol Agent.
+- **Mode administrateur :** durée au choix (5 min à 4 h, jusqu'à la déconnexion, ou jamais redemandé : le mot de passe de connexion suffit).
 - **Terminal :** plusieurs sessions persistantes (elles survivent au rechargement de la page), affichage côte à côte.
 - **Fichiers :**
   - double panneau, sélection multiple, glisser-déposer avec confirmation ;

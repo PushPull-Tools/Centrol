@@ -92,6 +92,8 @@ export const P = {
   move: '<polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/>',
   home: '<path d="M3 10.5 12 3l9 7.5V19a2 2 0 0 1-2 2h-4v-6h-6v6H5a2 2 0 0 1-2-2z"/>',
   hdd: '<rect x="3" y="13" width="18" height="8" rx="2"/><path d="M5 13 7.5 4h9L19 13"/><line x1="7" y1="17" x2="7.01" y2="17"/>',
+  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
   box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><polyline points="3 8 12 13 21 8"/><line x1="12" y1="13" x2="12" y2="21"/>',
   pulse: '<polyline points="3 12 7 12 10 4 14 20 17 12 21 12"/>',
   server: '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><line x1="7" y1="6.5" x2="7.01" y2="6.5"/><line x1="7" y1="17.5" x2="7.01" y2="17.5"/>',
@@ -432,11 +434,20 @@ export async function op(name, args = {}) {
 }
 
 // ------------------------------------------------------------------ mode modification (mot de passe)
+/** Durée du mode administrateur, en clair (Mon compte › Mode administrateur). */
+export function elevHint() {
+  const k = (prefs() || {}).elevKeep ?? 10;
+  if (k === 0 || k === -1) return tr('Le mot de passe reste uniquement en mémoire, jusqu’à la déconnexion.');
+  return tr('Le mot de passe reste uniquement en mémoire, {0} après la dernière action.').replace('{0}', k >= 60 ? `${k / 60} h` : `${k} min`);
+}
+/** Temps restant du mode administrateur : « encore 7 min » ou « jusqu'à la déconnexion ». */
+export const elevLeft = (r) => (r && r.session ? tr('jusqu’à la déconnexion') : tr('encore {0} min').replace('{0}', Math.max(1, Math.ceil(((r && r.remaining) || 0) / 60))));
+
 export async function elevatePrompt(reason) {
   const admin = S.me && S.me.admin;
   const pw = await ask(admin ? 'Mode administrateur' : 'Mode modification', {type: 'password', ok: 'Déverrouiller',
     label: admin ? `Mot de passe de ${S.me.linux || S.me.user} sur le serveur (sudo)` : 'Ton mot de passe de connexion',
-    hint: (reason ? reason + ' ' : '') + 'Le mot de passe reste uniquement en mémoire, 10 min après la dernière action.'});
+    hint: (reason ? reason + ' ' : '') + elevHint()});
   if (pw === null) return false;
   try { const r = await api('POST', '/api/fs/elevate', {password: pw}); toast(r.root ? 'Mode administrateur (root) activé' : 'Mode modification activé'); }
   catch (e) { toastErr(e); return elevatePrompt(reason); }

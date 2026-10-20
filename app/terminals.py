@@ -54,6 +54,31 @@ class Terminals:
         s.reader = asyncio.create_task(self._pump(s))
         return s
 
+    async def create_cmd(self, owner: str, title: str, cmd: str, cols: int, rows: int, secret: str | None = None) -> Session:
+        """Terminal qui lance une commande (console d'un conteneur). Avec secret : le mot de passe sudo est envoyé
+        seulement quand la commande a coupé l'écho (repère \\001), il n'apparaît donc jamais à l'écran."""
+        if len(self.of(owner)) >= 12:
+            raise ValueError("12 terminaux ouverts au maximum")
+        s = Session(owner, "", title)
+        s.cols, s.rows = cols, rows
+        s.proc = await self.ssh.pty(cmd, cols, rows)
+        if secret is not None:
+            got = b""
+            try:
+                while b"\x01" not in got:
+                    chunk = await asyncio.wait_for(s.proc.stdout.read(4096), 15)
+                    if not chunk:
+                        raise ValueError((got.decode(errors="ignore").strip() or "Console impossible à ouvrir")[-200:])
+                    got += chunk
+            except asyncio.TimeoutError:
+                s.proc.close()
+                raise ValueError("Le serveur ne répond pas")
+            s.buf.extend(got.split(b"\x01", 1)[1])
+            s.proc.stdin.write(secret.encode() + b"\n")
+        self.sessions[s.id] = s
+        s.reader = asyncio.create_task(self._pump(s))
+        return s
+
     async def _pump(self, s: Session):
         try:
             while True:

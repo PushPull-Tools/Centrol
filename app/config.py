@@ -75,6 +75,7 @@ IGNORE_CONTAINERS = SELF_NAMES | {
 POLL = float(_env("POLL_INTERVAL", "4") or 4)
 ICON_CDN = _env("ICON_CDN", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons").rstrip("/")
 
+STACKS_DIR = _env("STACKS_DIR", "/srv/docker")   # nouvelles stacks : un dossier par service
 BOOKMARKS = [p for p in _env("FS_BOOKMARKS", "/srv/docker,~,/etc,/var/log,/").split(",") if p]
 
 SESSION_DAYS = 30

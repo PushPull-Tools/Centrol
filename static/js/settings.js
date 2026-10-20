@@ -446,6 +446,10 @@ const BUILD = {
           h('small', {text: me.linux ? `Terminal et fichiers avec le compte Linux « ${me.linux} »` : 'Pas de compte Linux associé : terminal et fichiers indisponibles'}))),
       twofa,
       me.canPassword ? opt('Mot de passe', 'Changer le mot de passe de ton compte Centrol', h('button', {class: 'btn sm', onclick: changePw}, 'Changer…')) : null,
+      opt(me.admin ? 'Mode administrateur' : 'Mode modification',
+        me.admin ? 'Après avoir donné ton mot de passe sudo (fichiers, conteneurs, réglages configurés), combien de temps il reste valable sans action.' : 'Après avoir redonné ton mot de passe (modifier des fichiers), combien de temps il reste valable sans action.',
+        seg([[5, '5 min'], [10, '10 min'], [30, '30 min'], [60, '1 h'], [240, '4 h'], [0, 'Jusqu’à la déconnexion'], [-1, 'Jamais redemandé']], prefs().elevKeep ?? 10, (v) => setPref('elevKeep', v)),
+        'Le mot de passe reste seulement en mémoire sur le serveur, jamais sur le disque. « Jamais redemandé » : ton mot de passe de connexion sert aussi au mode administrateur, dès la connexion et jusqu’à la déconnexion (comptes du serveur ; sinon il est demandé une fois). La nouvelle durée s’applique au prochain déverrouillage.'),
       section('Applications masquées', hiddenApps.length ? 'Applis que tu as retirées de ta barre et de ta vue d’ensemble.' : 'Aucune appli masquée.',
         ...hiddenApps.map((a) => h('div', {class: 'trow'}, appIcon(a, 24), h('div', {class: 'tt'}, h('b', {text: a.name}), h('small', {text: a.domain})),
           h('button', {class: 'btn sm', onclick: (e) => { e.currentTarget.closest('.trow').remove(); quiet(op('app.set', {key: a.key, hidden: null})); }}, 'Réafficher'))))));
@@ -528,8 +532,8 @@ const BUILD = {
   async auth(c) {
     const [d, el] = await Promise.all([api('GET', '/api/admin'), api('GET', '/api/fs/elevation').catch(() => ({remaining: 0}))]);
     const a = d.settings.auth;
-    // un réglage déjà configuré est grisé : on le modifie après avoir redonné son mot de passe (mode administrateur, 10 min)
-    let unlocked = el.remaining > 0, left = el.remaining || 0, timer = null;
+    // un réglage déjà configuré est grisé : on le modifie après avoir redonné son mot de passe (mode administrateur)
+    let unlocked = el.remaining > 0, left = el.remaining || 0, leftSession = !!el.session, timer = null;
     const configured = (k) => { const v = a[k]; if (k === 'linux') return v !== false; return !!(v && (v.enabled || v.url || v.realm || v.issuer || (v.rules && v.rules.length) || v.cookieDomain || (v.clients && v.clients.length))); };
     const panels = [];
     const unlockBar = h('div', {class: 'lockbar open', hidden: true});
@@ -545,7 +549,7 @@ const BUILD = {
       const any = panels.some((p) => configured(p.key));
       unlockBar.hidden = !(unlocked && any);
       unlockBar.replaceChildren(h('span', {html: ic('unlock', 14)}),
-        h('span', {notr: true, text: tr('Réglages configurés déverrouillés : ils se regriseront tout seuls dans {0} min sans action.').replace('{0}', Math.max(1, Math.ceil(left / 60)))}),
+        h('span', {notr: true, text: leftSession ? tr('Réglages configurés déverrouillés jusqu’à la déconnexion.') : tr('Réglages configurés déverrouillés : ils se regriseront tout seuls dans {0} min sans action.').replace('{0}', Math.max(1, Math.ceil(left / 60)))}),
         h('button', {type: 'button', class: 'btn sm', onclick: relock}, 'Regriser maintenant'));
     };
     const watch = () => {
@@ -554,7 +558,7 @@ const BUILD = {
       timer = setTimeout(async () => {
         if (!c.isConnected) return;
         const r = await api('GET', '/api/fs/elevation').catch(() => ({remaining: 0}));
-        unlocked = r.remaining > 0; left = r.remaining || 0;
+        unlocked = r.remaining > 0; left = r.remaining || 0; leftSession = !!r.session;
         applyLock(); watch();
       }, Math.max(3, Math.min(left - 1, 30)) * 1000);
     };
@@ -562,7 +566,7 @@ const BUILD = {
     const onElev = async () => {
       if (!c.isConnected) return;
       const r = await api('GET', '/api/fs/elevation').catch(() => ({remaining: 0}));
-      unlocked = r.remaining > 0; left = r.remaining || 0; applyLock(); watch();
+      unlocked = r.remaining > 0; left = r.remaining || 0; leftSession = !!r.session; applyLock(); watch();
     };
     authElevHook = onElev;
     const relock = async () => { await api('POST', '/api/fs/drop').catch(() => {}); unlocked = false; left = 0; applyLock(); };

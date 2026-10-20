@@ -533,8 +533,14 @@ class Auth:
         return False
 
     # ---- mode modification (mot de passe en RAM uniquement)
-    def set_elev(self, key: str, pw: str, root: bool):
-        self.elev[key] = {"pw": pw, "root": root, "exp": time.time() + C.ELEV_TTL}
+    def elev_ttl(self, user: str) -> int | None:
+        """Durée du mode administrateur choisie par la personne (secondes après la dernière action) ;
+        None = jusqu'à la déconnexion (« jusqu'à la déconnexion » et « jamais redemander »)."""
+        keep = self.store.profile(user)["prefs"].get("elevKeep", 10) if user in self.store.users else 10
+        return None if keep in (0, -1) else int(keep) * 60
+
+    def set_elev(self, key: str, pw: str, root: bool, ttl: int | None = C.ELEV_TTL):
+        self.elev[key] = {"pw": pw, "root": root, "ttl": ttl, "exp": time.time() + ttl if ttl else float("inf")}
 
     def get_elev(self, key: str, touch=True) -> dict | None:
         e = self.elev.get(key)
@@ -543,13 +549,15 @@ class Auth:
         if e["exp"] < time.time():
             self.elev.pop(key, None)
             return None
-        if touch:
-            e["exp"] = time.time() + C.ELEV_TTL
+        if touch and e.get("ttl"):
+            e["exp"] = time.time() + e["ttl"]
         return e
 
     def elev_remaining(self, key: str) -> int:
         e = self.elev.get(key)
-        return int(e["exp"] - time.time()) if e and e["exp"] > time.time() else 0
+        if not e or e["exp"] <= time.time():
+            return 0
+        return 10 ** 9 if e["exp"] == float("inf") else int(e["exp"] - time.time())
 
     def drop_elev(self, key: str):
         self.elev.pop(key, None)

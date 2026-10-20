@@ -71,7 +71,10 @@
 - Conteneurs :
   - CPU, mémoire et réseau, avec graphiques ;
   - pastilles de santé et de mise à jour d'image disponible ;
-  - démarrer, arrêter, redémarrer, mettre à jour.
+  - démarrer, arrêter, redémarrer, mettre à jour, supprimer ;
+  - console dans le conteneur (`docker exec`), fiche détaillée (ports, volumes, réseaux, variables, avec les valeurs secrètes masquées) ;
+  - **Stacks** : modifier un docker-compose (fichier vérifié, ancien gardé en `.bak`, puis redéployé) ou en créer un dans son propre dossier ;
+  - **Ménage** : conteneurs arrêtés, images, réseaux et cache inutilisés (volumes seulement si on les coche), avec l'espace récupéré.
 - Journaux Docker en direct, fusionnés ou côte à côte (jusqu'à 4 colonnes), avec filtre, recherche, téléchargement et coloration des lignes JSON et des niveaux (erreur, avertissement…).
 - Alertes sur les journaux : un texte ou une expression régulière repéré dans un conteneur prévient les administrateurs dans Centrol et/ou par webhook (ntfy, Gotify, Matrix, Discord, Slack…).
 - Autres serveurs : un petit agent en lecture seule (dossier `agent/`) ajoute d'autres machines à la Supervision : leurs conteneurs (statistiques, journaux, alertes) et leur état (processeur, mémoire, disques, réseau), avec une alerte si l'une ne répond plus. On peut les ajouter dès l'installation ou plus tard.

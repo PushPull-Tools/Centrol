@@ -131,3 +131,24 @@ def test_sources_des_applis(browser, server):
     page.wait_for_selector("text=Aucun proxy détecté", timeout=8000)
     assert page.errors == []
     page.close()
+
+
+def test_duree_mode_admin_et_outils_docker(browser, server):
+    page = open_as(browser, server, "admin1", "adminpw123")
+    page.evaluate("(async()=>{const s=await import('/static/js/settings.js'); s.openSettings('account')})()")
+    page.wait_for_selector("text=Mode administrateur", timeout=5000)
+    page.get_by_role("radio", name="Jusqu’à la déconnexion").click()
+    page.wait_for_timeout(600)
+    assert page.evaluate("(async()=>(await (await fetch('/api/me')).json()))()") is not None
+    prefs = page.evaluate("(async()=>{const c=await import('/static/js/core.js'); return c.prefs().elevKeep})()")
+    assert prefs == 0
+    page.keyboard.press("Escape")
+    page.evaluate("(async()=>{const {supTool}=await import('/static/js/sup.js'); supTool.open('x')})()")
+    page.wait_for_selector("text=Ménage", timeout=5000)
+    page.get_by_role("button", name="Stacks").click()
+    page.wait_for_selector("text=Stacks docker compose", timeout=5000)
+    page.get_by_role("button", name="Nouvelle stack").click()
+    page.wait_for_timeout(500)
+    assert "services:" in page.locator("textarea.code-ed").input_value()
+    assert page.errors == []
+    page.close()

@@ -30,6 +30,7 @@ from .terminals import Terminals
 from .updates import Updates
 from .activity import Activity, short_ua
 from .alerts import Alerts, clean_rules, send_webhook
+from .dockerops import DockerError, DockerOps
 from .remote import Remote, clean_proxy, clean_servers, public_servers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -108,6 +109,7 @@ terms = Terminals(ssh, store)
 updates = Updates(store, hub)
 alerts = Alerts(store, mon, hub)
 remote = Remote(store, mon, hub, alerts)
+ops = DockerOps(disc, ssh, terms, store)
 activity = Activity()
 
 
@@ -377,8 +379,25 @@ def _safe_rd(req, rd):
                         [a.get("domain") or "" for a in disc.apps])
 
 
-def _login_response(req, user, extra="", rd=""):
+async def _auto_elev(key: str, user: str, pw: str):
+    """« Ne jamais redemander » : le mot de passe de connexion ouvre aussi le mode administrateur, jusqu'à la déconnexion
+    (seulement s'il est bien le mot de passe sudo du compte du serveur)."""
+    try:
+        eff = A.effective(store, user)
+        if eff["admin"] and eff["linux"]:
+            ok = await ssh.check_sudo(pw, as_user=eff["linux"])
+            if ok or (ok is None and await asyncio.to_thread(auth.check_password, user, pw)):
+                auth.set_elev(key, pw, True, None)
+        elif not eff["admin"]:                       # mot de passe de connexion déjà vérifié
+            auth.set_elev(key, pw, False, None)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _login_response(req, user, extra="", rd="", pw=None):
     tok = auth.open_session(user, client_ip(req), short_ua(_ua(req)))
+    if pw and store.profile(user)["prefs"].get("elevKeep") == -1:
+        await _auto_elev(A._sha(tok), user, pw)
     activity.log(user, "login", client_ip(req), _ua(req), _via(user, extra))
     resp = JSONResponse({"ok": True, "next": _safe_rd(req, rd) or "/"})
     resp.set_cookie(COOKIE, tok, max_age=C.SESSION_DAYS * 86400, httponly=True,
@@ -413,8 +432,10 @@ async def login(req: Request):
         activity.log(user, "hours", ip, _ua(req), A.access_label(rule))
         err(403, f"Accès autorisé seulement : {A.access_label(rule)}", "hours")
     if (store.users[user].get("totp") or {}).get("enabled"):
-        return {"totp": True, "ticket": auth.ticket({"kind": "2fa", "user": user, "rd": str(body.get("rd") or "")[:2000]})}
-    return _login_response(req, user, rd=str(body.get("rd") or "")[:2000])
+        keep = store.profile(user)["prefs"].get("elevKeep") == -1
+        return {"totp": True, "ticket": auth.ticket({"kind": "2fa", "user": user, "rd": str(body.get("rd") or "")[:2000],
+                                                      **({"pw": pw} if keep else {})})}
+    return await _login_response(req, user, rd=str(body.get("rd") or "")[:2000], pw=pw)
 
 
 @app.post("/api/login/totp")
@@ -434,7 +455,7 @@ async def login_totp(req: Request):
         await asyncio.sleep(0.8)
         err(401, "Code incorrect")
     auth.take(body.get("ticket"), "2fa")
-    return _login_response(req, t["user"], " + 2FA", rd=t.get("rd", ""))
+    return await _login_response(req, t["user"], " + 2FA", rd=t.get("rd", ""), pw=t.get("pw"))
 
 
 def _base(req: Request) -> str:
@@ -1409,6 +1430,102 @@ async def docker_action(req: Request, s=Depends(require)):
     return {"ok": True}
 
 
+# ============================================================================ gestion Docker avancée (administrateurs)
+def _root(s) -> dict:
+    """Administrateur en mode administrateur (mot de passe sudo donné) ; sinon l'interface le demande."""
+    need_admin(s)
+    e = auth.get_elev(s["key"])
+    if not e or not e["root"]:
+        err(403, "Mode administrateur requis", "elevate")
+    return e
+
+
+async def _ops(s, coro):
+    try:
+        return await coro
+    except PermissionError as ex:
+        auth.drop_elev(s["key"])
+        err(403, str(ex), "elevate")
+    except (DockerError, ValueError) as ex:
+        err(400, str(ex))
+    except SSHError as ex:
+        fail(ex)
+
+
+@app.get("/api/docker/{name}/inspect")
+async def docker_inspect(name: str, reveal: int = 0, s=Depends(require)):
+    need_admin(s)
+    if reveal:
+        _root(s)                 # valeurs secrètes (mots de passe, jetons) : mot de passe redemandé
+    return await _ops(s, ops.inspect(name, bool(reveal)))
+
+
+@app.post("/api/docker/remove")
+async def docker_remove(req: Request, s=Depends(require)):
+    e = _root(s)
+    await _ops(s, ops.remove(str((await req.json()).get("name", "")), e["pw"], s["eff"]["linux"]))
+    return {"ok": True}
+
+
+@app.post("/api/docker/df")
+async def docker_df(s=Depends(require)):
+    e = _root(s)
+    return await _ops(s, ops.df(e["pw"], s["eff"]["linux"]))
+
+
+@app.post("/api/docker/prune")
+async def docker_prune(req: Request, s=Depends(require)):
+    e = _root(s)
+    what = [str(x) for x in (await req.json()).get("what") or []]
+    return await _ops(s, ops.prune(what, e["pw"], s["eff"]["linux"]))
+
+
+@app.get("/api/docker/stacks")
+async def docker_stacks(s=Depends(require)):
+    need_admin(s)
+    return {"stacks": ops.stacks(), "dir": C.STACKS_DIR, "network": C.PROXY_NETWORK}
+
+
+@app.post("/api/docker/stack/read")
+async def docker_stack_read(req: Request, s=Depends(require)):
+    e = _root(s)
+    return await _ops(s, ops.read(str((await req.json()).get("project", "")), e["pw"], s["eff"]["linux"]))
+
+
+@app.post("/api/docker/stack/deploy")
+async def docker_stack_deploy(req: Request, s=Depends(require)):
+    e = _root(s)
+    b = await req.json()
+    r = await _ops(s, ops.deploy(e["pw"], s["eff"]["linux"], str(b.get("content") or ""),
+                                 project=b.get("project"), new=b.get("new")))
+    activity.log(s["user"], "stack", client_ip(req), _ua(req), f'{b.get("new") or b.get("project")} : {"ok" if r["ok"] else "échec"}')
+    return r
+
+
+@app.post("/api/docker/exec")
+async def docker_exec(req: Request, s=Depends(require)):
+    """Console dans un conteneur : un terminal de plus, que l'outil Terminal affiche."""
+    e = _root(s)
+    if not s["eff"]["tools"].get("terminal"):
+        err(403, "Le terminal n'est pas autorisé pour ton compte", "forbidden")
+    b = await req.json()
+    name = str(b.get("name", ""))
+    try:
+        ops._local(name)
+    except DockerError as ex:
+        err(400, str(ex))
+    cols = max(20, min(500, int(b.get("cols") or 100)))
+    rows = max(5, min(300, int(b.get("rows") or 30)))
+    cmd, secret = ops.exec_cmd(name, s["eff"]["linux"], ssh.nopasswd.get(s["eff"]["linux"] or C.SSH_USER, False))
+    try:
+        t = await terms.create_cmd(s["user"], f"⧉ {name}", cmd, cols, rows, e["pw"] if secret else None)
+    except ValueError as ex:
+        err(400, str(ex))
+    except SSHError as ex:
+        fail(ex)
+    return t.info()
+
+
 # ============================================================================ alertes des journaux
 @app.get("/api/admin/user/activity")
 async def user_activity(username: str, s=Depends(require)):
@@ -1622,7 +1739,7 @@ async def fs_do(s, coro):
 @app.get("/api/fs/elevation")
 async def elevation(s=Depends(require)):
     e = auth.get_elev(s["key"], touch=False)
-    return {"remaining": auth.elev_remaining(s["key"]), "root": bool(e and e["root"])}
+    return {"remaining": auth.elev_remaining(s["key"]), "root": bool(e and e["root"]), "session": bool(e and not e.get("ttl"))}
 
 
 @app.post("/api/fs/elevate")
@@ -1649,8 +1766,9 @@ async def elevate(req: Request, s=Depends(require)):
         auth.fail(ip)
         await asyncio.sleep(0.8)
         err(403, "Mot de passe incorrect", "badpw")
-    auth.set_elev(s["key"], pw, root)
-    return {"remaining": auth.elev_remaining(s["key"]), "root": root}
+    ttl = auth.elev_ttl(s["user"])
+    auth.set_elev(s["key"], pw, root, ttl)
+    return {"remaining": auth.elev_remaining(s["key"]), "root": root, "session": ttl is None}
 
 
 @app.post("/api/fs/drop")

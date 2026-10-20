@@ -3,7 +3,7 @@
 import {tr, trHtml} from './i18n.js';
 import {
   h, ic, S, api, upload, toast, toastErr, modal, ask, confirmBox, choose, menu, lstore, collator, norm,
-  fmtSize, fmtDate, withAdmin, elevatePrompt, Cancelled, on, debounce,
+  fmtSize, fmtDate, withAdmin, elevatePrompt, elevLeft, Cancelled, on, debounce,
 } from './core.js';
 
 const IMG = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i;
@@ -179,7 +179,7 @@ class Pane {
       if (r.path !== this.cwd) { this.sel.clear(); this.filter = ''; this.filt.value = ''; }
       this.cwd = r.path; this.entries = r.entries; this.err = null;
       lstore.set('cwd' + this.idx, this.cwd);
-      this.fm.setElev(r.remaining, r.root);
+      this.fm.setElev(r.remaining, r.root, r.session);
     } catch (e) {
       if (e instanceof Cancelled) return;
       if (push && path !== this.cwd) { this.back.push(this.cwd); this.fwd = []; }
@@ -630,9 +630,9 @@ export const filesTool = {
     this.editor.paint();
   },
   async refreshElev() {
-    try { const r = await api('GET', '/api/fs/elevation'); this.setElev(r.remaining, r.root); } catch { this.setElev(0, false); }
+    try { const r = await api('GET', '/api/fs/elevation'); this.setElev(r.remaining, r.root, r.session); } catch { this.setElev(0, false); }
   },
-  setElev(rem, root) { this.remaining = rem; this.rootMode = root; this.paintSide(); },
+  setElev(rem, root, session) { this.remaining = rem; this.rootMode = root; this.elevSession = !!session; this.paintSide(); },
   paintSide() {
     const me = S.me || {};
     const home = me.home || '/';
@@ -650,7 +650,7 @@ export const filesTool = {
       }},
     h('span', {html: ic(this.remaining ? 'unlock' : 'lock', 18)}),
     h('span', null, h('b', {text: this.remaining ? (this.rootMode ? 'Administrateur (root)' : 'Modification') : 'Lecture seule'}),
-      h('small', {text: this.remaining ? `encore ${m} min · cliquer pour verrouiller` : me.admin ? 'modifier = mot de passe sudo' : 'modifier = ton mot de passe'})));
+      h('small', {text: this.remaining ? `${elevLeft({remaining: this.remaining, session: this.elevSession})} · ${tr('cliquer pour verrouiller')}` : me.admin ? 'modifier = mot de passe sudo' : 'modifier = ton mot de passe'})));
     const docs = this.editor ? this.editor.docs : [];
     this.side.replaceChildren(h('h5', {text: 'Raccourcis'}),
       ...bms.map((p) => {

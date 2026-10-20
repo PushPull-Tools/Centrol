@@ -117,6 +117,12 @@ export const termTool = {
     this.order.push(key);
     return v;
   },
+  /** Session déjà créée sur le serveur (console d'un conteneur) : un onglet de plus, affiché tout de suite. */
+  attach(sid, title) {
+    if (!this.views) return;                    // outil pas encore ouvert : load() la trouvera et l'affichera
+    if (!this.views.has(sid)) this.makeView(sid, title);
+    this.select(sid);
+  },
   add() {
     if (this.order.length >= 12) return toast('12 terminaux au maximum', 'err');
     const v = this.makeView(null, 'Nouveau…');

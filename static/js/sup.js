@@ -3,7 +3,7 @@
 import {tr, trHtml} from './i18n.js';
 import {
   h, ic, S, api, toast, toastErr, confirmBox, quiet, lstore, norm, fmtSize, fmtRate, fmtPct, fmtDur, cssv, tfmt,
-  withAdmin, elevatePrompt, appIcon, on, debounce, ask,
+  withAdmin, elevatePrompt, appIcon, on, debounce, ask, modal, menu, Cancelled,
 } from './core.js';
 import {chartBox, spark, meter, smooth} from './charts.js';
 import {show, setMode} from './stage.js';
@@ -70,6 +70,107 @@ export const supTool = {
       await withAdmin(() => api('POST', '/api/docker/action', {name, action}), 'Piloter les conteneurs demande ton mot de passe sudo.');
       t.close(); toast(`${name} : ${words[1]}`);
     } catch (e) { t.close(); toastErr(e); }
+  },
+
+  // ------------------------------------------------------------------ gestion avancée (administrateurs)
+  async console(name) {
+    try {
+      const r = await withAdmin(() => api('POST', '/api/docker/exec', {name}), 'Ouvrir une console dans un conteneur demande ton mot de passe sudo.');
+      show('@term', S.mode === 'focus' ? 'focus' : 'tabs');
+      const {termTool} = await import('./term.js');
+      termTool.attach(r.id, r.title);
+    } catch (e) { if (!(e instanceof Cancelled)) toastErr(e); }
+  },
+  async details(name, reveal = false) {
+    let d;
+    try { d = await (reveal ? withAdmin(() => api('GET', `/api/docker/${encodeURIComponent(name)}/inspect?reveal=1`), 'Afficher les valeurs secrètes demande ton mot de passe sudo.')
+      : api('GET', `/api/docker/${encodeURIComponent(name)}/inspect`)); } catch (e) { if (!(e instanceof Cancelled)) toastErr(e); return; }
+    const row = (k, v) => v || v === 0 ? h('tr', null, h('th', {text: k}), h('td', {class: 'mono', notr: true, text: String(v)})) : null;
+    const tbl = (head, rows) => rows.length ? h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'}, h('thead', null, h('tr', null, ...head.map((t) => h('th', {text: t})))), h('tbody', null, rows))) : h('p', {class: 'muted', text: 'Aucun.'});
+    const secret = d.env.some((e) => e.secret);
+    modal({title: tr('Détails de {0}').replace('{0}', name), xwide: true, ok: null, cancel: 'Fermer', body: [
+      h('table', {class: 'tbl kv'}, h('tbody', null,
+        row(tr('Image'), d.image), row(tr('Identifiant'), d.id), row(tr('Créé'), d.created && new Date(d.created).toLocaleString()),
+        row(tr('Redémarrage automatique'), d.restart), row(tr('Redémarrages'), d.restarts), row(tr('Utilisateur'), d.user),
+        row(tr('Commande'), [d.entrypoint, d.cmd].filter(Boolean).join(' ')), row(tr('Réseau'), d.networkMode),
+        d.privileged ? row(tr('Privilégié'), tr('oui')) : null,
+        d.limits.memory ? row(tr('Mémoire max'), fmtSize(d.limits.memory)) : null, d.limits.cpus ? row(tr('Processeurs max'), d.limits.cpus) : null,
+        d.compose.project ? row('Compose', `${d.compose.project} · ${d.compose.service}${d.compose.files.length ? ' · ' + d.compose.files.join(', ') : ''}`) : null)),
+      h('h4', {text: 'Ports'}), tbl(['Conteneur', 'Hôte'], d.ports.map((p) => h('tr', null, h('td', {class: 'mono', text: p.container}), h('td', {class: 'mono', text: p.host || tr('non publié')})))),
+      h('h4', {text: 'Volumes'}), tbl(['Sur le serveur', 'Dans le conteneur', ''], d.mounts.map((m) => h('tr', null, h('td', {class: 'mono', notr: true, text: m.source}), h('td', {class: 'mono', notr: true, text: m.dest}), h('td', {text: m.rw ? '' : 'lecture seule'})))),
+      h('h4', {text: 'Réseaux'}), tbl(['Réseau', 'Adresse', 'Alias'], d.networks.map((n) => h('tr', null, h('td', {class: 'mono', notr: true, text: n.name}), h('td', {class: 'mono', text: n.ip || '—'}), h('td', {class: 'mono', notr: true, text: n.aliases.join(', ')})))),
+      h('div', {class: 'row'}, h('h4', {text: 'Variables d’environnement'}),
+        secret && !d.revealed ? h('button', {class: 'btn sm', html: ic('eye', 14) + '<span>Afficher les valeurs secrètes</span>', onclick: (e) => { e.target.closest('form').close(); this.details(name, true); }}) : null),
+      tbl(['Nom', 'Valeur'], d.env.map((e) => h('tr', null, h('td', {class: 'mono', notr: true, text: e.key}), h('td', {class: 'mono', notr: true, text: e.secret && !d.revealed ? '••••••••' : e.value}))))]});
+  },
+  async remove(c) {
+    const typed = await ask(tr('Supprimer « {0} » ?').replace('{0}', c.name), {label: tr('Tape « {0} » pour confirmer').replace('{0}', c.name), ok: 'Supprimer',
+      hint: 'Le conteneur est arrêté puis supprimé (docker rm -f). Ses volumes et son dossier restent sur le serveur : un « docker compose up -d » le recrée.'});
+    if (typed === null) return;
+    if (typed !== c.name) return toast('Nom différent : suppression annulée', 'info');
+    try { await withAdmin(() => api('POST', '/api/docker/remove', {name: c.name}), 'Supprimer un conteneur demande ton mot de passe sudo.'); toast(tr('{0} supprimé').replace('{0}', c.name)); this.back(); }
+    catch (e) { if (!(e instanceof Cancelled)) toastErr(e); }
+  },
+  async cleanup() {
+    let df;
+    try { df = await withAdmin(() => api('POST', '/api/docker/df'), 'Le ménage de Docker demande ton mot de passe sudo.'); } catch (e) { if (!(e instanceof Cancelled)) toastErr(e); return; }
+    const KINDS = [['containers', 'Conteneurs arrêtés', 'containers', true], ['images', 'Images inutilisées (par aucun conteneur)', 'images', true],
+      ['networks', 'Réseaux inutilisés', null, true], ['build', 'Cache de construction', 'build', true], ['volumes', 'Volumes inutilisés', 'volumes', false]];
+    const pick = {};
+    const rows = KINDS.map(([k, label, dk, on]) => {
+      pick[k] = on;
+      const x = dk && df[dk];
+      return h('label', {class: 'trow' + (k === 'volumes' ? ' danger' : '')}, h('input', {type: 'checkbox', checked: on, onchange: (e) => { pick[k] = e.target.checked; }}),
+        h('div', {class: 'tt'}, h('b', {text: label}), h('small', {text: k === 'volumes' ? tr('Attention : les données des applis supprimées sont effacées définitivement.') : x ? tr('{0} récupérables').replace('{0}', fmtSize(x.reclaimable)) : ''})),
+        x ? h('small', {class: 'muted', text: tr('{0} au total').replace('{0}', fmtSize(x.size))}) : null);
+    });
+    const ok = await modal({title: 'Faire le ménage dans Docker', ok: 'Nettoyer', danger: true, body: [
+      h('p', {class: 'hint', text: 'Supprime ce que plus aucun conteneur n’utilise. Les conteneurs en marche, leurs images et leurs données ne sont jamais touchés.'}), ...rows]});
+    if (!ok) return;
+    const what = Object.keys(pick).filter((k) => pick[k]);
+    if (!what.length) return;
+    const t = toast('Ménage en cours…', 'info', 0);
+    try {
+      const r = await withAdmin(() => api('POST', '/api/docker/prune', {what}), 'Le ménage de Docker demande ton mot de passe sudo.');
+      t.close();
+      const bad = r.steps.filter((x) => !x.ok);
+      toast(tr('Ménage terminé : {0} récupérés').replace('{0}', fmtSize(r.freed)) + (bad.length ? ' · ' + tr('échec : {0}').replace('{0}', bad.map((x) => tr(x.label)).join(', ')) : ''), bad.length ? 'warn' : 'info', 8000);
+    } catch (e) { t.close(); if (!(e instanceof Cancelled)) toastErr(e); }
+  },
+  async stacks() {
+    let d;
+    try { d = await api('GET', '/api/docker/stacks'); } catch (e) { return toastErr(e); }
+    const p = modal({title: 'Stacks docker compose', ok: null, cancel: 'Fermer', xwide: true, body: [
+      h('p', {class: 'hint', text: tr('Chaque stack est un fichier docker-compose. Modifier → vérification du fichier, copie de l’ancien (.bak), puis redéploiement. Une nouvelle stack est créée dans son propre dossier de {0}.').replace('{0}', d.dir)}),
+      h('div', {class: 'actions'}, h('button', {class: 'btn primary', html: ic('plus', 15) + '<span>Nouvelle stack</span>', onclick: (e) => { e.target.closest('form').close(); this.editStack(null, d.network); }})),
+      h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'}, h('thead', null, h('tr', null, ...['Stack', 'Conteneurs', 'Fichier', ''].map((t) => h('th', {text: t})))),
+        h('tbody', null, d.stacks.map((s) => h('tr', null, h('td', null, h('b', {notr: true, text: s.project})),
+          h('td', null, ...s.containers.map((c) => h('span', {class: 'pill ' + (c.running ? 'ok' : 'ko'), notr: true, text: c.service || c.name}))),
+          h('td', {class: 'mono', notr: true, text: s.files[0] || '—'}),
+          h('td', {class: 'acts'}, s.files.length && !s.protected ? h('button', {class: 'ibtn', title: 'Modifier', html: ic('edit', 15), onclick: (e) => { e.target.closest('form').close(); this.editStack(s.project); }}) : s.protected ? h('small', {class: 'muted', text: 'Centrol'}) : null))))))]});
+    return p;
+  },
+  async editStack(project, network) {
+    let cur = {content: `services:\n  mon-appli:\n    image: \n    container_name: mon-appli\n    restart: unless-stopped\n    networks: [proxy]\n\nnetworks:\n  proxy:\n    external: true\n    name: ${network || 'npm_network'}\n`, file: null};
+    if (project) {
+      try { cur = await withAdmin(() => api('POST', '/api/docker/stack/read', {project}), 'Lire un docker-compose demande ton mot de passe sudo.'); }
+      catch (e) { if (!(e instanceof Cancelled)) toastErr(e); return; }
+    }
+    const name = h('input', {class: 'inp mono', placeholder: 'ex. : stirling-pdf', spellcheck: 'false'});
+    const ed = h('textarea', {class: 'inp mono code-ed', spellcheck: 'false', rows: 22});
+    ed.value = cur.content;
+    ed.addEventListener('keydown', (e) => { if (e.key === 'Tab') { e.preventDefault(); const a = ed.selectionStart; ed.setRangeText('  ', a, ed.selectionEnd, 'end'); } });
+    const out = h('pre', {class: 'code', hidden: true});
+    await modal({title: project ? tr('docker-compose de {0}').replace('{0}', project) : 'Nouvelle stack', xwide: true, ok: project ? 'Enregistrer et redéployer' : 'Créer et démarrer', body: [
+      project ? h('p', {class: 'hint mono', notr: true, text: cur.file + (cur.extra && cur.extra.length ? '  (+ ' + cur.extra.join(', ') + ')' : '')})
+        : h('label', {class: 'fld'}, h('span', {text: 'Nom (dossier et projet)'}), name),
+      ed, out],
+    onOk: async () => {
+      const body = project ? {project, content: ed.value} : {new: name.value.trim(), content: ed.value};
+      const r = await withAdmin(() => api('POST', '/api/docker/stack/deploy', body), 'Redéployer une stack demande ton mot de passe sudo.');
+      if (!r.ok) { out.hidden = false; out.textContent = r.output || ''; throw new Error(tr('Fichier enregistré, mais le démarrage a échoué (voir ci-dessous)')); }
+      toast(project ? tr('{0} redéployée').replace('{0}', project) : tr('Stack créée : {0}').replace('{0}', r.file), 'info', 6000);
+    }});
   },
 
   // ------------------------------------------------------------------ construction
@@ -203,7 +304,10 @@ export const supTool = {
     const rows = h('div', {class: 'dk-rows'});
     const detail = h('div', {class: 'dk-detail'}, h('div', {class: 'dk-empty', text: 'Choisis un conteneur'}));
     const srv = h('select', {class: 'inp sel dk-srv', title: 'Serveur', onchange: () => { lstore.set('dockSrv', srv.value); this.refreshContainers(); }});
-    const root = h('div', {class: 'dk'}, h('div', {class: 'dk-list'}, h('div', {class: 'dk-top'}, h('div', {class: 'dk-flt'}, filter, srv), sum), rows), detail);
+    const tools = S.me.admin ? h('div', {class: 'dk-tools'},
+      h('button', {class: 'btn sm', html: ic('layers', 14) + '<span>Stacks</span>', title: 'Fichiers docker-compose : modifier, redéployer, créer', onclick: () => this.stacks()}),
+      h('button', {class: 'btn sm', html: ic('trash', 14) + '<span>Ménage</span>', title: 'Supprimer images, réseaux, cache et conteneurs inutilisés', onclick: () => this.cleanup()})) : null;
+    const root = h('div', {class: 'dk'}, h('div', {class: 'dk-list'}, h('div', {class: 'dk-top'}, h('div', {class: 'dk-flt'}, filter, srv), tools, sum), rows), detail);
     this.body.replaceChildren(root);
     this.ui = {root, filter, srv, sum, rows, detail, d: null};
     this.refreshContainers();
@@ -328,7 +432,12 @@ export const supTool = {
           a ? h('button', {class: 'btn sm', html: ic('frame', 14) + '<span>Ouvrir l’appli</span>', onclick: () => show(a.key, 'tabs')}) : null,
           ctl ? (c.running ? btn('refresh', 'Redémarrer', 'restart') : btn('play', 'Démarrer', 'start', 'primary')) : null,
           ctl && c.running && !c.protected ? btn('stop', 'Arrêter', 'stop') : null,
-          admin && c.update && c.compose ? btn('download', 'Mettre à jour', 'update', 'primary') : null));
+          admin && c.update && c.compose ? btn('download', 'Mettre à jour', 'update', 'primary') : null,
+          admin && !c.remote && c.running && S.me.tools.terminal ? h('button', {class: 'btn sm', html: ic('terminal', 14) + '<span>Console</span>', title: 'Ouvrir un terminal dans ce conteneur (docker exec)', onclick: () => this.console(c.name)}) : null,
+          admin && !c.remote ? h('button', {class: 'btn sm', html: ic('info', 14) + '<span>Détails</span>', onclick: () => this.details(c.name)}) : null,
+          admin && !c.remote ? h('button', {class: 'ibtn', title: 'Plus d’actions', html: ic('more', 16), onclick: (ev) => menu([
+            c.project ? {label: 'Modifier le docker-compose…', icon: 'edit', action: () => this.editStack(c.project)} : null,
+            c.protected ? null : {label: 'Supprimer le conteneur…', icon: 'trash', danger: true, action: () => this.remove(c)}].filter(Boolean), ev.clientX, ev.clientY)}) : null));
       d.info.replaceChildren(
         c.remote ? h('span', null, 'Serveur ', h('b', {notr: true, text: c.server}), ' (lecture seule)') : null,
         h('span', null, 'Image ', h('b', {text: c.image})), h('span', null, 'État ', h('b', {text: c.status})),
