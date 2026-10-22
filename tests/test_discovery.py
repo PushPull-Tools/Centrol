@@ -102,3 +102,17 @@ def test_page_d_erreur_du_proxy_pas_retenue():
         assert asyncio.run(d._check_embed(app, "172.20.0.2", None)) == ("ok", "")
     finally:
         d.http = old
+
+
+def test_appli_en_reseau_hote_renommee():
+    """Le panneau « standard_panel » renommé « LocalPhone » (réseau hôte) reste relié à son domaine standard.ex.org."""
+    from app.discovery import match, known
+    import app.config as C
+    c = container_info({"Id": "z", "Names": ["/LocalPhone"], "Image": "localphone", "State": "running", "Labels": {}, "Ports": [],
+                        "HostConfig": {"NetworkMode": "host"}, "NetworkSettings": {"Networks": {}}})
+    host = next(iter(C.HOST_ADDRS)) if C.HOST_ADDRS else "172.31.0.1"
+    C.HOST_ADDRS.add(host)
+    p = {"domain": "standard.ex.org", "forward_host": host, "forward_port": 8780}
+    got, how = match(p, [c])
+    assert got is c and how == "réseau hôte"
+    assert known(c, "standard.ex.org", False)[0] == "LocalPhone"

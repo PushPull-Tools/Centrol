@@ -110,9 +110,10 @@ def match(proxy: dict, cinfo: list[dict]):
         for c in cinfo:
             if any(pub == fp for pub, _ in c["ports"]):
                 return c, "port publié"
-        sub = tokens(proxy["domain"].split(".")[0])
+        first = proxy["domain"].split(".")[0].lower()
+        sub = tokens(first) | ({SHORT[first]} if first in SHORT else set())    # « standard » -> localphone…
         for c in cinfo:
-            if c["host"] and sub & tokens(c["name"]):
+            if c["host"] and (sub & tokens(c["name"]) or any(len(x) > 3 and x in c["name"].lower().replace("-", "").replace("_", "") for x in sub)):
                 return c, "réseau hôte"
     return None, None
 
@@ -185,7 +186,7 @@ KNOWN = [
     (r"frigate", "Frigate", ["frigate"]), (r"open-webui", "Open WebUI", ["open-webui"]),
     (r"ollama", "Ollama", ["ollama"]), (r"mealie", "Mealie", ["mealie"]),
     (r"homepage", "Homepage", ["homepage"]), (r"heimdall", "Heimdall", ["heimdall"]),
-    (r"standard[-_]panel|localphone", "Standard", ["asterisk"]), (r"asterisk", "Asterisk", ["asterisk"]),
+    (r"local-?phone|standard[-_]panel", "LocalPhone", ["asterisk"]), (r"asterisk", "Asterisk", ["asterisk"]),
     (r"calibre-web", "Calibre-Web", ["calibre-web"]), (r"kavita", "Kavita", ["kavita"]),
     (r"freshrss", "FreshRSS", ["freshrss"]), (r"bookstack", "BookStack", ["bookstack"]),
     (r"vikunja", "Vikunja", ["vikunja"]), (r"netdata", "Netdata", ["netdata"]),
@@ -198,7 +199,7 @@ KNOWN = [
 SHORT = {"ha": "home-assistant", "hass": "home-assistant", "nc": "nextcloud", "cloud": "nextcloud", "vw": "vaultwarden",
          "bw": "vaultwarden", "qbit": "qbittorrent", "qb": "qbittorrent", "kuma": "uptime-kuma", "z2m": "zigbee2mqtt",
          "nr": "node-red", "jf": "jellyfin", "pihole": "pi-hole", "dns": "adguard", "photos": "immich", "photo": "immich", "logs": "dozzle", "log": "dozzle", "files": "filebrowser",
-         "mail": "stalwart", "music": "music-assistant", "router": "gl-inet", "ma": "music-assistant", "compta": "invoice-ninja", "doublon": "czkawka", "doublons": "czkawka", "routeur": "gl-inet", "flint": "gl-inet", "phone": "asterisk",
+         "mail": "stalwart", "music": "music-assistant", "router": "gl-inet", "ma": "music-assistant", "compta": "invoice-ninja", "doublon": "czkawka", "doublons": "czkawka", "routeur": "gl-inet", "flint": "gl-inet", "phone": "localphone", "standard": "localphone",
          "security": "sentinol", "secu": "sentinol", "sentinel": "sentinol", "nas": "synology", "dsm": "synology", "syno": "synology"}
 
 
