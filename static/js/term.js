@@ -32,7 +32,7 @@ class View {
   open() {
     if (this.opened) return;
     this.opened = true;
-    (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { this.t.open(this.box); this.doFit(); this.connect(); });
+    (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { this.t.open(this.box); quietField(this.box); this.doFit(); this.connect(); });
   }
   doFit() {
     if (!this.opened || !this.box.clientWidth || !this.box.clientHeight) return;
@@ -77,6 +77,16 @@ class View {
   }
   focus() { if (this.opened) this.t.focus(); }
   dispose() { this.closed = true; try { this.ws && this.ws.close(); } catch { /* fermé */ } try { this.t.dispose(); } catch { /* rien */ } this.el.remove(); }
+}
+
+/** Le terminal reçoit le clavier par une zone de saisie invisible : on dit aux gestionnaires de mots de passe
+ *  (Bitwarden / Vaultwarden, 1Password, LastPass, Dashlane…) de l'ignorer, sinon ils s'y greffent et volent la saisie. */
+function quietField(box) {
+  const ta = box.querySelector('textarea');
+  if (!ta) return;
+  const attrs = {autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', name: 'centrol-terminal',
+    'data-bwignore': 'true', 'data-1p-ignore': 'true', 'data-lpignore': 'true', 'data-form-type': 'other', 'data-protonpass-ignore': 'true'};
+  for (const [k, v] of Object.entries(attrs)) ta.setAttribute(k, v);
 }
 
 export const termTool = {
