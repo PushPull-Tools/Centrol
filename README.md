@@ -67,7 +67,9 @@
 - Installable comme application (PWA) ; client de bureau Linux et Windows.
 
 **Supervision** (remplace Dozzle et compagnie)
+- Un menu par machine (ce serveur et chaque machine reliée par un agent), avec ses onglets : Serveur, Conteneurs, Processus, Journaux.
 - Serveur : CPU, mémoire, température, disques, réseau par interface au choix, avec des graphiques sur 15 min.
+- Processus : la liste en direct comme `top` (processeur, mémoire, durée, commande), triable et filtrable ; arrêter un processus de ce serveur (mot de passe sudo).
 - Conteneurs :
   - CPU, mémoire et réseau, avec graphiques ;
   - pastilles de santé et de mise à jour d'image disponible ;

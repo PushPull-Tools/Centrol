@@ -12,7 +12,8 @@ def by_domain(lst):
 
 
 def test_meme_fichier_pour_centrol_et_l_agent():
-    assert filecmp.cmp(ROOT / "app" / "sources.py", ROOT / "agent" / "sources.py", shallow=False)
+    for f in ("sources.py", "procs.py"):
+        assert filecmp.cmp(ROOT / "app" / f, ROOT / "agent" / f, shallow=False), f
 
 
 def test_detection_par_image():

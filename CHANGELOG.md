@@ -28,6 +28,7 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). Tant qu
 - **Côte à côte :** deux fenêtres affichées ensemble (glisser un onglet sur la moitié gauche ou droite).
 - **Onglets personnels :** n'importe quel site, avec récupération de l'icône.
 - **Supervision :**
+  - menu par machine (ce serveur et les autres, par leur agent) avec tous les onglets ; onglet Processus (comme top) ;
   - vue globale du serveur (CPU, mémoire, température, disques, réseau par interface) ;
   - graphiques par conteneur et actions démarrer / arrêter / redémarrer / mettre à jour / supprimer ;
   - console dans un conteneur, fiche détaillée, stacks docker compose (modifier, redéployer, créer), ménage (prune) ;

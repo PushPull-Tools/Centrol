@@ -11,6 +11,7 @@ import socket
 import urllib.parse
 from pathlib import Path
 
+import procs
 import sources
 
 VERSION = "1.1.0"
@@ -140,6 +141,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 return self.send(200, host_sample().encode(), "text/plain; charset=utf-8")
             if p == "/v1/hostinfo":
                 return self.send(200, host_info().encode(), "text/plain; charset=utf-8")
+            if p == "/v1/processes":
+                return self.send(200, procs.processes(str(PROC), str(ROOT / "etc")))
             if p == "/v1/proxies":
                 kind = (q.get("kind") or ["auto"])[0]
                 if kind not in ("auto", "none") + sources.KINDS:

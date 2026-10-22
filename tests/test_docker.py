@@ -223,3 +223,38 @@ def test_console_ecran_sans_mot_de_passe():
         return s
     s = asyncio.run(go())
     assert bytes(s.buf) == b"bonjour" and ssh.p.written == b"secret1\n"
+
+
+def test_processus_de_ce_serveur(env, monkeypatch):
+    """Le lecteur de processus est envoyé au serveur par SSH et lancé avec python3 (ici, sur cette machine)."""
+    import subprocess, sys
+
+    async def run(cmd, stdin=b"", sudo=None, as_user=None, timeout=60):
+        assert cmd == "python3 - /proc /etc"
+        r = subprocess.run([sys.executable, "-", "/proc", "/etc"], input=stdin, capture_output=True)
+        return r.returncode, r.stdout, r.stderr
+    fake, c = env
+    monkeypatch.setattr(fake, "run", run)
+    d = c.get("/api/host/processes").json()
+    assert d["count"] > 0 and d["cpus"] >= 1 and {"pid", "user", "cpu", "mem", "cmd", "age"} <= set(d["processes"][0])
+
+
+def test_processus_d_une_autre_machine(env, monkeypatch):
+    fake, c = env
+
+    async def procs(sid):
+        assert sid == "nas"
+        return {"count": 1, "processes": [{"pid": 7, "cmd": "smbd"}]}
+    monkeypatch.setattr(M.remote, "processes", procs)
+    assert c.get("/api/host/processes?server=nas").json()["processes"][0]["cmd"] == "smbd"
+
+
+def test_arreter_un_processus(env, alice):
+    fake, c = env
+    assert alice.get("/api/host/processes").status_code == 403
+    r = c.post("/api/host/kill", json={"pid": 4242}, headers=HDR)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "elevate"
+    root(c)
+    assert c.post("/api/host/kill", json={"pid": 1}, headers=HDR).status_code == 400
+    assert c.post("/api/host/kill", json={"pid": 4242, "force": True}, headers=HDR).status_code == 200
+    assert fake.cmds[-1] == "kill -KILL -- 4242"

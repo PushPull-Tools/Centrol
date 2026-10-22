@@ -152,3 +152,20 @@ def test_duree_mode_admin_et_outils_docker(browser, server):
     assert "services:" in page.locator("textarea.code-ed").input_value()
     assert page.errors == []
     page.close()
+
+
+def test_supervision_processus(browser, server):
+    page = open_as(browser, server, "admin1", "adminpw123")
+    page.route("**/api/host/processes*", lambda r: r.fulfill(json={"at": 0, "cpus": 4, "load": [0.5, 0.4, 0.3], "memTotal": 8e9, "memAvailable": 6e9, "count": 2,
+        "processes": [{"pid": 10, "ppid": 1, "user": "root", "name": "dockerd", "cmd": "/usr/bin/dockerd", "cpu": 12.5, "mem": 2e8, "state": "S", "threads": 20, "age": 3600},
+                      {"pid": 20, "ppid": 1, "user": "www", "name": "nginx", "cmd": "nginx: worker", "cpu": 1.0, "mem": 5e7, "state": "S", "threads": 1, "age": 60}]}))
+    page.evaluate("(async()=>{const {supTool}=await import('/static/js/sup.js'); supTool.open('x')})()")
+    page.wait_for_selector(".snav button[data-tab='procs']", timeout=5000)
+    page.click(".snav button[data-tab='procs']")
+    page.wait_for_selector("td.cmd >> text=dockerd", timeout=5000)
+    page.fill(".pr-tb input", "nginx")
+    page.wait_for_timeout(200)
+    assert page.locator(".tablewrap.pr tbody tr").count() == 1
+    page.click("th:has-text('Commande')")
+    assert page.errors == []
+    page.close()

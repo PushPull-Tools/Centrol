@@ -102,6 +102,13 @@ class Remote:
                     "old": True}
         return d
 
+    async def processes(self, sid: str) -> dict:
+        srv = next((s for s in self.servers() if s["id"] == sid), None)
+        if not srv:
+            raise ValueError("Serveur introuvable")
+        r = await self.get(srv, "/v1/processes")
+        return r.json()
+
     async def test(self, srv: dict) -> dict:
         try:
             return {"ok": True, **(await self.get(srv, "/v1/ping")).json()}

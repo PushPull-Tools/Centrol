@@ -10,6 +10,7 @@ import re
 import secrets
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -1690,6 +1691,55 @@ async def host_get(server: str = "", s=Depends(require)):
         disc.icons.want("os:" + word, cands + ["linux"], [], lambda: None)
         snap = {**snap, "osIcon": disc.icons.url("os:" + word)}
     return snap
+
+
+@app.get("/api/host/processes")
+async def host_processes(server: str = "", s=Depends(require)):
+    """Processus de la machine choisie, comme top (administrateurs)."""
+    need_admin(s)
+    if server:
+        try:
+            return await remote.processes(server)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                err(400, "Agent trop ancien : mets-le à jour pour voir les processus de cette machine")
+            err(502, f"Agent injoignable ({e.response.status_code})")
+        except Exception as e:  # noqa: BLE001
+            err(502, str(e)[:200] or "Agent injoignable")
+    src = (Path(__file__).parent / "procs.py").read_bytes()
+    try:
+        code, out, errb = await ssh.run("python3 - /proc /etc", stdin=src, timeout=20)
+    except SSHError as e:
+        fail(e)
+    if code != 0:
+        err(500, "Lecture des processus impossible : " + (errb or out).decode("utf-8", "replace").strip()[-300:])
+    return json.loads(out)
+
+
+@app.post("/api/host/kill")
+async def host_kill(req: Request, s=Depends(require)):
+    """Arrêter un processus de ce serveur (TERM, ou KILL pour forcer) : mot de passe sudo."""
+    e = _root(s)
+    b = await req.json()
+    try:
+        pid = int(b.get("pid"))
+    except (TypeError, ValueError):
+        err(400, "Processus invalide")
+    sig = "KILL" if b.get("force") else "TERM"
+    if pid <= 1:
+        err(400, "Ce processus ne peut pas être arrêté")
+    try:
+        code, out, errb = await ssh.run(f"kill -{sig} -- {pid}", sudo=e["pw"], as_user=s["eff"]["linux"], timeout=15)
+    except SSHError as ex:
+        fail(ex)
+    msg = (errb or out).decode("utf-8", "replace").strip()
+    if code != 0:
+        if "sorry, try again" in msg.lower() or "incorrect password" in msg.lower():
+            auth.drop_elev(s["key"])
+            err(403, "Mot de passe administrateur refusé", "elevate")
+        err(400, msg[-300:] or "Échec")
+    activity.log(s["user"], "kill", client_ip(req), _ua(req), f"{sig} {pid} {str(b.get('name') or '')[:60]}")
+    return {"ok": True}
 
 
 @app.get("/api/host/units")

@@ -1123,3 +1123,14 @@ body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
 .trow.danger b { color: var(--danger); }
 .modal h4 { margin: 14px 0 6px; font-size: 13px; }
 .trow.danger small { white-space: normal; color: var(--danger); }
+/* Supervision : machine choisie et processus */
+.snav .machine { width: auto; min-width: 140px; max-width: 220px; height: 32px; margin-right: 8px; font-weight: 600; }
+.pr-tb { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.pr-tb .inp { max-width: 340px; }
+.pr-sum { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-left: auto; }
+.pr-sum b { color: var(--text); }
+.tablewrap.pr th.sortable { cursor: pointer; user-select: none; }
+.tablewrap.pr th.sortable.on { color: var(--text); }
+.tablewrap.pr .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tablewrap.pr td.cmd { max-width: 0; width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tablewrap.pr .pbar { display: inline-block; width: 34px; height: 5px; margin-right: 7px; vertical-align: middle; border-radius: 3px; background: linear-gradient(90deg, var(--accent) var(--p), var(--panel3) var(--p)); }

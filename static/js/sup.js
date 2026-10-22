@@ -3,7 +3,7 @@
 import {tr, trHtml} from './i18n.js';
 import {
   h, ic, S, api, toast, toastErr, confirmBox, quiet, lstore, norm, fmtSize, fmtRate, fmtPct, fmtDur, cssv, tfmt,
-  withAdmin, elevatePrompt, appIcon, on, debounce, ask, modal, menu, Cancelled,
+  withAdmin, elevatePrompt, appIcon, on, debounce, ask, modal, menu, Cancelled, choose,
 } from './core.js';
 import {chartBox, spark, meter, smooth} from './charts.js';
 import {show, setMode} from './stage.js';
@@ -46,7 +46,11 @@ export const supTool = {
   open(name) {
     // on retient d'où l'on vient (une appli, la vue d'ensemble) pour la flèche « Retour »
     this.from = S.active && S.active !== '@sup' ? {key: S.active, mode: S.mode} : null;
-    this.sel = name; show('@sup', S.mode === 'focus' ? 'focus' : 'tabs'); if (this.ui) { this.go('containers'); this.select(name); } },
+    this.sel = name;
+    // conteneur d'une autre machine : la Supervision passe sur cette machine
+    const c = (S.containers || []).find((x) => x.name === name);
+    if (c && this.nav && !this.onMachine(c)) { this.hostSid = c.remote ? c.sid : ''; lstore.set('hostSid', this.hostSid); this.paintNav(); this.loadHost(); }
+    show('@sup', S.mode === 'focus' ? 'focus' : 'tabs'); if (this.ui) { this.go('containers'); this.select(name); } },
   back() {
     const f = this.from; this.from = null;
     if (f) { if (f.mode === 'overview') setMode('overview'); else show(f.key, f.mode === 'focus' ? 'focus' : 'tabs'); return; }
@@ -70,6 +74,64 @@ export const supTool = {
       await withAdmin(() => api('POST', '/api/docker/action', {name, action}), 'Piloter les conteneurs demande ton mot de passe sudo.');
       t.close(); toast(`${name} : ${words[1]}`);
     } catch (e) { t.close(); toastErr(e); }
+  },
+
+  // ================================================================== Processus (comme top), machine choisie
+  buildProcs() {
+    const filter = h('input', {class: 'inp', placeholder: 'Filtrer (commande, utilisateur, PID)…', spellcheck: 'false', oninput: () => this.paintProcs()});
+    const sum = h('div', {class: 'pr-sum'});
+    const pause = h('button', {class: 'btn sm', html: ic('pause', 14) + `<span>${tr('Pause')}</span>`, onclick: () => {
+      this.ui.paused = !this.ui.paused; pause.innerHTML = trHtml(ic(this.ui.paused ? 'play' : 'pause', 14) + `<span>${this.ui.paused ? 'Reprendre' : 'Pause'}</span>`); }});
+    const table = h('div', {class: 'tablewrap pr'});
+    this.body.replaceChildren(h('div', {class: 'pr-tb'}, filter, pause, sum), table);
+    this.ui = {filter, sum, table, pause, sort: lstore.get('procSort', ['cpu', -1]), data: null, paused: false};
+    const load = async () => {
+      if (this.tab !== 'procs' || this.ui.paused || this.ui.busy || !this.visible()) return;
+      this.ui.busy = true;
+      try { this.ui.data = await api('GET', '/api/host/processes' + (this.hostSid ? '?server=' + encodeURIComponent(this.hostSid) : '')); this.ui.err = null; }
+      catch (e) { this.ui.err = e.message; }
+      finally { this.ui.busy = false; }
+      if (this.tab === 'procs') this.paintProcs();
+    };
+    load();
+    this.procTimer = setInterval(load, 3000);
+  },
+  paintProcs() {
+    const u = this.ui, d = u.data;
+    if (u.err && !d) return u.table.replaceChildren(h('p', {class: 'banner warn', text: u.err}));
+    if (!d) return u.table.replaceChildren(h('p', {class: 'muted', text: tr('Lecture des processus…')}));
+    const q = norm(u.filter.value.trim());
+    const [key, dir] = u.sort;
+    const rows = d.processes.filter((p) => !q || norm(p.cmd).includes(q) || norm(p.user).includes(q) || String(p.pid) === q)
+      .sort((a, b) => (typeof a[key] === 'string' ? a[key].localeCompare(b[key]) : a[key] - b[key]) * dir);
+    const used = d.memTotal - d.memAvailable;
+    u.sum.replaceChildren(
+      h('span', null, h('b', {text: String(d.count)}), ' ' + tr('processus')),
+      h('span', null, tr('Charge') + ' ', h('b', {text: d.load.map((x) => x.toFixed(2)).join(' · ')}), h('small', {class: 'muted', text: ` (${d.cpus} ${tr('cœurs')})`})),
+      h('span', null, tr('Mémoire') + ' ', h('b', {text: `${fmtSize(used)} / ${fmtSize(d.memTotal)}`})),
+      u.err ? h('span', {class: 'pill warn', title: u.err, text: tr('Mise à jour en échec')}) : null);
+    const canKill = S.me.admin && !this.hostSid;
+    const col = (k, label, cls = '') => h('th', {class: 'sortable ' + cls + (key === k ? ' on' : ''), onclick: () => { u.sort = [k, key === k ? -dir : (k === 'cmd' || k === 'user' ? 1 : -1)]; lstore.set('procSort', u.sort); this.paintProcs(); }},
+      tr(label) + (key === k ? (dir < 0 ? ' ↓' : ' ↑') : ''));
+    const bar = (v, max) => h('i', {class: 'pbar', style: {'--p': Math.min(100, v / max * 100) + '%'}});
+    u.table.replaceChildren(h('table', {class: 'tbl'},
+      h('thead', null, h('tr', null, col('pid', 'PID', 'num'), col('user', 'Utilisateur'), col('cpu', 'CPU', 'num'), col('mem', 'Mémoire', 'num'), col('age', 'Depuis', 'num'), col('cmd', 'Commande'), canKill ? h('th') : null)),
+      h('tbody', null, rows.slice(0, 300).map((p) => h('tr', null,
+        h('td', {class: 'mono num', text: String(p.pid)}), h('td', {class: 'mono', notr: true, text: p.user}),
+        h('td', {class: 'num'}, bar(p.cpu, 100), (p.cpu || 0).toFixed(1) + ' %'),
+        h('td', {class: 'num'}, bar(p.mem, d.memTotal), fmtSize(p.mem)),
+        h('td', {class: 'num', text: fmtDur(p.age)}),
+        h('td', {class: 'mono cmd', notr: true, title: p.cmd, text: p.cmd}),
+        canKill ? h('td', {class: 'acts'}, h('button', {class: 'ibtn', title: tr('Arrêter ce processus'), html: ic('stop', 14), onclick: () => this.kill(p)})) : null)))));
+  },
+  async kill(p) {
+    const v = await choose(tr('Arrêter le processus {0} ?').replace('{0}', p.pid), `${p.cmd}\n\n${tr('« Arrêter » lui demande de se fermer proprement ; « Forcer » le coupe net (données non enregistrées perdues).')}`,
+      [{label: tr('Arrêter'), value: 'term', kind: 'primary'}, {label: tr('Forcer'), value: 'kill', kind: 'danger'}, {label: tr('Annuler'), value: null}]);
+    if (!v) return;
+    try {
+      await withAdmin(() => api('POST', '/api/host/kill', {pid: p.pid, force: v === 'kill', name: p.name}), 'Arrêter un processus demande ton mot de passe sudo.');
+      toast(tr('Processus {0} arrêté').replace('{0}', p.pid));
+    } catch (e) { if (!(e instanceof Cancelled)) toastErr(e); }
   },
 
   // ------------------------------------------------------------------ gestion avancée (administrateurs)
@@ -177,9 +239,7 @@ export const supTool = {
   async init(w) {
     this.w = w;
     const admin = S.me.admin;
-    const tabs = [['containers', 'box', 'Conteneurs'], ['dlogs', 'log', 'Journaux Docker']];
-    if (admin) { tabs.unshift(['server', 'server', 'Serveur']); tabs.push(['slogs', 'fileText', 'Journaux système']); }
-    this.nav = h('nav', {class: 'snav', role: 'tablist'}, ...tabs.map(([k, i, t]) => h('button', {role: 'tab', dataset: {tab: k}, html: ic(i, 15) + `<span>${t}</span>`, onclick: () => this.go(k)})));
+    this.nav = h('nav', {class: 'snav', role: 'tablist'});
     this.body = h('div', {class: 'sbody'});
     w.el.append(h('div', {class: 'panel sup'}, this.nav, this.body));
     w.el.classList.add('ready');
@@ -190,17 +250,36 @@ export const supTool = {
       for (const [n, arr] of Object.entries(r.history)) this.hist[n] = arr;
     } catch (e) { toastErr(e); }
     if (admin) { this.hostSid = lstore.get('hostSid', '') || ''; if (this.hostSid && !(S.servers || []).some((x) => x.id === this.hostSid)) this.hostSid = ''; await this.loadHost(); }
+    this.paintNav();
     this.go(this.sel ? 'containers' : lstore.get('supTab', admin ? 'server' : 'containers'));
     setInterval(() => this.poll(), 2500);
   },
+  /** Onglets de la machine choisie : chaque machine a son menu complet (journaux système : ce serveur seulement). */
+  tabsFor() {
+    const admin = S.me.admin, local = !this.hostSid;
+    return [admin && ['server', 'server', 'Serveur'], ['containers', 'box', 'Conteneurs'], admin && ['procs', 'cpu', 'Processus'],
+      ['dlogs', 'log', 'Journaux Docker'], admin && local && ['slogs', 'fileText', 'Journaux système']].filter(Boolean);
+  },
+  paintNav() {
+    const srvs = S.me.admin ? (S.servers || []) : [];
+    const pick = srvs.length ? h('select', {class: 'inp sel machine', title: 'Machine', 'aria-label': 'Machine', onchange: (e) => this.pickHost(e.target.value)},
+      h('option', {value: '', text: tr('Ce serveur')}),
+      ...srvs.map((x) => h('option', {value: x.id, notr: true, selected: this.hostSid === x.id, text: (x.ok === false ? '⚠ ' : '') + x.name}))) : null;
+    this.nav.replaceChildren(...[pick, ...this.tabsFor().map(([k, i, t]) => h('button', {role: 'tab', dataset: {tab: k}, class: k === this.tab ? 'on' : '', html: ic(i, 15) + `<span>${tr(t)}</span>`, onclick: () => this.go(k)}))].filter(Boolean));
+  },
+  /** Conteneur de la machine choisie (ce serveur, ou nom@machine). */
+  onMachine(c) { return this.hostSid ? c.sid === this.hostSid : !c.remote; },
   go(tab) {
     if (tab === 'server' && !S.me.admin) tab = 'containers';
+    if (!this.tabsFor().some(([k]) => k === tab)) tab = S.me.admin ? 'server' : 'containers';
+    clearInterval(this.procTimer);
     this.tab = tab; lstore.set('supTab', tab);
     for (const b of this.nav.children) b.classList.toggle('on', b.dataset.tab === tab);
     this.ui = {};
     if (tab === 'server') this.buildServer();
     else if (tab === 'containers') this.buildContainers();
     else if (tab === 'dlogs') this.buildDockerLogs();
+    else if (tab === 'procs') this.buildProcs();
     else this.buildSysLogs();
   },
   refresh() {
@@ -230,16 +309,14 @@ export const supTool = {
   },
   async pickHost(sid) {
     this.hostSid = sid; lstore.set('hostSid', sid);
+    if (this.ui && this.ui.d) this.sel = null;
     await this.loadHost();
-    if (this.tab === 'server') this.buildServer();
+    this.paintNav();
+    this.go(this.tab);
   },
   buildServer() {
     const d = this.hostData || {};
-    const srvs = S.servers || [];
-    const pick = srvs.length ? h('div', {class: 'hostpick'}, h('span', {class: 'muted', text: 'Machine :'}),
-      h('div', {class: 'seg'}, h('button', {class: this.hostSid ? '' : 'on', onclick: () => this.pickHost('')}, 'Ce serveur'),
-        ...srvs.map((x) => h('button', {class: (this.hostSid === x.id ? 'on' : '') + (x.ok === false ? ' down' : ''), title: x.ok === false ? x.error : null, onclick: () => this.pickHost(x.id)},
-          h('i', {class: 'sdot ' + (x.ok ? 'ok' : x.ok === false ? 'ko' : '')}), h('span', {notr: true, text: x.name}))))) : null;
+    const pick = null;               // la machine se choisit dans le menu de la Supervision
     const H = (n) => d.hist.map((p) => [p[0], p[n]]);
     const cpuV = h('b'), memV = h('b'), netV = h('span', {class: 'cc-leg'});
     const ifSel = h('select', {class: 'inp sel', title: 'Interface réseau affichée', onchange: () => { lstore.set('iface', ifSel.value); this.paintServer(); }});
@@ -311,7 +388,8 @@ export const supTool = {
     this.body.replaceChildren(root);
     this.ui = {root, filter, srv, sum, rows, detail, d: null};
     this.refreshContainers();
-    const first = this.sel || lstore.get('dockSel', null) || (S.containers.find((c) => c.running) || {}).name;
+    const ok = (n) => S.containers.some((c) => c.name === n && this.onMachine(c));
+    const first = [this.sel, lstore.get('dockSel', null)].find((n) => n && ok(n)) || (S.containers.find((c) => c.running && this.onMachine(c)) || {}).name;
     if (first) this.select(first);
   },
   refreshContainers() {
@@ -319,8 +397,8 @@ export const supTool = {
     const q = norm(u.filter.value.trim());
     // autres serveurs (Centrol Agent) : filtre par serveur, affiché seulement s'il y en a
     const servers = [...new Map([...(S.servers || []).map((x) => [x.id, x.name]), ...S.containers.filter((c) => c.remote).map((c) => [c.sid, c.server])]).entries()];
-    u.srv.hidden = !servers.length;
-    const want = lstore.get('dockSrv', '');
+    u.srv.hidden = true;          // la machine se choisit dans le menu de la Supervision
+    const want = this.hostSid || '-';
     u.srv.replaceChildren(h('option', {value: '', text: 'Tous les serveurs'}), h('option', {value: '-', text: 'Ce serveur'}),
       ...servers.map(([id, n]) => h('option', {value: id, notr: true, text: n})));
     u.srv.value = servers.some(([id]) => id === want) || want === '-' ? want : '';
@@ -487,7 +565,7 @@ export const supTool = {
   },
   paintChips() {
     const u = this.ui;
-    const names = S.containers.filter((c) => c.running).map((c) => c.name).sort();
+    const names = S.containers.filter((c) => c.running && this.onMachine(c)).map((c) => c.name).sort();
     const all = !u.pick.size;
     u.chips.replaceChildren(h('button', {class: 'chip sm' + (all ? ' on' : ''), onclick: () => { u.pick.clear(); this.savePick(); }}, 'Tous'),
       ...names.map((n) => h('button', {class: 'chip sm' + (u.pick.has(n) ? ' on' : ''), title: 'Afficher / masquer ' + n,
@@ -499,7 +577,8 @@ export const supTool = {
     const u = this.ui; if (!u.pre || u.busy) return;
     u.busy = true;
     try {
-      const q = new URLSearchParams({names: [...u.pick].join(','), tail: initial ? 150 : 100});
+      const all = S.containers.filter((c) => c.running && this.onMachine(c)).map((c) => c.name);
+      const q = new URLSearchParams({names: (u.pick.size ? [...u.pick].filter((n) => all.includes(n)) : all).join(',') || '-', tail: initial ? 150 : 100});
       if (u.since) q.set('since', String(u.since));
       const r = await api('GET', '/api/docker/logs?' + q);
       const seen = new Set(u.lines.slice(-400).map((l) => l.ts + l.c + l.txt));
