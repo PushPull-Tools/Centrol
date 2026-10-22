@@ -2,11 +2,11 @@
 import {tr, trHtml} from './i18n.js';
 import {
   $, h, ic, S, BUILTIN, tools, appOf, ov, nameOf, isFav, embedOf, appIcon, badged, catView, catSet, barFavOn, op, quiet,
-  prefs, menu, closeMenu, menuOpen, ask, confirmBox, api, toast, emit, can, modal, iconField, seeUrl,
+  prefs, barPos, phoneBar, PHONE, menu, closeMenu, menuOpen, ask, confirmBox, api, toast, emit, can, modal, iconField, seeUrl,
 } from './core.js';
 import {show, setMode, reloadWin, openSplit, closeSplit, placeFocused} from './stage.js';
 
-const vertical = () => ['left', 'right'].includes(prefs().barPos);
+const vertical = () => ['left', 'right'].includes(barPos());
 
 // ============================================================ catégories
 // ranger un onglet : sa catégorie se déplie dans la vue d'ensemble et sa vignette reste visible (on la suit jusqu'à sa catégorie)
@@ -138,7 +138,7 @@ export function renderBar() {
     const keep = (a) => isFav(a.key) || a.key === active || splitKeys.includes(a.key);
     v = {...v, cats: v.cats.map((c) => ({...c, apps: c.apps.filter(keep), was: c.apps.length})).filter((c) => c.apps.length || !c.was), loose: v.loose.filter(keep)};
   }
-  const sig = JSON.stringify([p.barPos, p.barCompact, favBar, v.cats.map((c) => [c.id, c.name, c.open, !!c.manual, c.apps.map((a) => a.key)]), v.loose.map((a) => a.key),
+  const sig = JSON.stringify([barPos(), p.barCompact, phoneBar(), favBar, v.cats.map((c) => [c.id, c.name, c.open, !!c.manual, c.apps.map((a) => a.key)]), v.loose.map((a) => a.key),
     [...v.cats.flatMap((c) => c.apps), ...v.loose].map((a) => [nameOf(a), a.icon, ov(a.key).icon, a.health, a.update, embedOf(a)]), S.me && S.me.display]);
   if (sig !== barSig) {
     barSig = sig;
@@ -306,7 +306,7 @@ export function openMainMenu() {
   const me = S.me, p = prefs();
   const b = $('#menuBtn');
   const r = b.getBoundingClientRect();
-  const pos = p.barPos;
+  const pos = barPos();
   const items = [
     {title: me.label || me.user, sub: me.groupName + (me.admin ? ' · administrateur' : me.moderates.length ? ' · modérateur' : ''), titleIcon: h('span', {class: 'avatar av-lg', style: {'--h': String(((me.label || me.user).charCodeAt(0) * 37) % 360)}, text: (me.label || me.user).slice(0, 1).toUpperCase()}),
       action: me.display ? null : () => emit('settings', 'account'), tip: 'Mon compte'},
@@ -345,7 +345,8 @@ function barMenu(x, y) {
   const setP = (k, v) => quiet(op('prefs.set', {[k]: v}).then(applyBar));
   const cats = pr.categories || [];
   const align = ['center', 'fill'].includes(p.barAlign) ? p.barAlign : 'start';
-  const pos = p.barPos || 'top';
+  const pos = barPos();
+  const posKey = phoneBar() ? 'mBar' : 'barPos';     // sur téléphone, on change la barre « téléphone »
   menu([
     {head: 'Barre'},
     {label: 'Vue d’ensemble', icon: 'grid', kbd: 'Alt+0', action: () => setMode('overview')},
@@ -357,7 +358,7 @@ function barMenu(x, y) {
       cats.length ? {label: 'Tout replier', icon: 'shrink', disabled: cats.every((c) => !c.open), action: () => cats.filter((c) => c.open).forEach((c) => quiet(op('cat.open', {id: c.id, open: false})))} : null]),
     {head: 'Position'},
     ...[['top', 'En haut', 'up'], ['bottom', 'En bas', 'down'], ['left', 'À gauche', 'left'], ['right', 'À droite', 'right']].map(([v, t, i]) =>
-      ({label: t, icon: i, checked: pos === v, action: () => setP('barPos', v)})),
+      ({label: t, icon: i, checked: pos === v, action: () => setP(posKey, v)})),
     vertical() ? null : {head: 'Onglets'},
     ...(vertical() ? [] : [['start', 'Au début'], ['center', 'Centrés'], ['fill', 'Toute la largeur']].map(([v, t]) =>
       ({label: t, icon: 'tab', checked: align === v, action: () => setP('barAlign', v)}))),
@@ -382,8 +383,10 @@ export function toggleBar() { setBarMode(prefs().barMode === 'fixed' ? 'hidden' 
 /** Applique position, compacité et mode de la barre. */
 export function applyBar() {
   const p = prefs();
-  document.body.dataset.bar = p.barPos || 'top';
-  document.body.classList.toggle('bar-compact', !!p.barCompact && vertical());
+  document.body.dataset.bar = barPos();
+  // barre verticale sur téléphone : toujours icônes seules (le nom de l'appli s'affiche dans la fenêtre)
+  document.body.classList.toggle('bar-compact', (!!p.barCompact || phoneBar()) && vertical());
+  document.body.classList.toggle('phone', PHONE.matches);
   document.body.dataset.handle = p.handleSide || 'right';
   document.body.dataset.align = ['center', 'fill'].includes(p.barAlign) ? p.barAlign : 'start';
   const hb = $('#hideBtn');
@@ -449,4 +452,5 @@ export function initBar() {
   nav.addEventListener('scroll', updArrows, {passive: true});
   nav.addEventListener('wheel', (e) => { if (!vertical() && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { nav.scrollLeft += e.deltaY; e.preventDefault(); } }, {passive: false});
   new ResizeObserver(updArrows).observe(nav);
+  PHONE.addEventListener('change', () => { applyBar(); });     // rotation, fenêtre redimensionnée : barre du bon format
 }

@@ -1,5 +1,5 @@
 /* Terminal : plusieurs sessions persistantes (onglets), affichage côte à côte, reconnexion automatique. */
-import {h, ic, S, api, toast, toastErr, prefs, ask, confirmBox, cssv, menu} from './core.js';
+import {h, ic, S, api, toast, toastErr, prefs, ask, confirmBox, cssv, menu, touch} from './core.js';
 
 const enc = new TextEncoder();
 
@@ -19,7 +19,7 @@ class View {
     });
     this.fit = new window.FitAddon.FitAddon();
     this.t.loadAddon(this.fit);
-    this.t.onData((d) => { if (this.ws && this.ws.readyState === 1) this.ws.send(enc.encode(d)); });
+    this.t.onData((d) => this.send(this.tool.mod(d)));
     this.t.attachCustomKeyEventHandler((e) => {
       if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyC' && this.t.hasSelection()) { navigator.clipboard.writeText(this.t.getSelection()); return false; }
       // Ctrl+Maj+V : collage natif du navigateur (xterm le reçoit tel quel), sans demander l'accès au presse-papiers
@@ -29,6 +29,7 @@ class View {
     this.opened = false;
     new ResizeObserver(() => requestAnimationFrame(() => this.doFit())).observe(this.box);
   }
+  send(d) { if (d && this.ws && this.ws.readyState === 1) this.ws.send(enc.encode(d)); }
   open() {
     if (this.opened) return;
     this.opened = true;
@@ -89,6 +90,16 @@ function quietField(box) {
   for (const [k, v] of Object.entries(attrs)) ta.setAttribute(k, v);
 }
 
+/** Touches absentes des claviers de téléphone. Ctrl et Alt restent enfoncés pour la touche suivante
+ *  (un appui : une fois ; deux appuis : verrouillé jusqu'au prochain appui). */
+const KEYS = [
+  ['Échap', '\x1b'], ['Tab', '\t'], ['Ctrl', 'ctrl'], ['Alt', 'alt'],
+  ['←', 'D'], ['↑', 'A'], ['↓', 'B'], ['→', 'C'],
+  ['Début', 'H'], ['Fin', 'F'], ['Pg↑', '5~'], ['Pg↓', '6~'],
+  ['|', '|'], ['~', '~'], ['/', '/'], ['-', '-'], ['^C', '\x03'], ['^D', '\x04'], ['^Z', '\x1a'], ['^L', '\x0c'], ['^R', '\x12'],
+];
+const CTRL = {'@': 0, '[': 27, '\\': 28, ']': 29, '^': 30, '_': 31, '?': 127, ' ': 0};
+
 export const termTool = {
   init(w) {
     if (typeof window.Terminal === 'undefined') {
@@ -99,18 +110,75 @@ export const termTool = {
     this.views = new Map();     // sid -> View
     this.order = [];            // sids
     this.active = null; this.second = null; this.splitOn = false;
+    this.mods = {ctrl: 0, alt: 0};        // 0 relâché, 1 une fois, 2 verrouillé
     this.tabs = h('div', {class: 'ttabs', role: 'tablist'});
     this.panes = h('div', {class: 'tpanes'});
     const head = h('div', {class: 'thead'}, this.tabs,
       h('button', {class: 'ibtn', title: 'Nouveau terminal (Ctrl+Maj+T dans le terminal)', html: ic('plus', 16), onclick: () => this.add()}),
       h('span', {class: 'sp'}),
-      this.splitBtn = h('button', {class: 'ibtn', title: 'Deux terminaux côte à côte', html: ic('split', 16), onclick: () => this.toggleSplit()}),
+      this.keysBtn = h('button', {class: 'ibtn', title: 'Touches spéciales (Ctrl, Échap, flèches…)', html: ic('keyboard', 16), onclick: () => this.showKeys(!this.keysOn)}),
+      this.splitBtn = h('button', {class: 'ibtn tsplit', title: 'Deux terminaux côte à côte', html: ic('split', 16), onclick: () => this.toggleSplit()}),
       h('button', {class: 'ibtn', title: 'À savoir', html: ic('info', 16), onclick: () => this.help()}));
-    w.el.append(h('div', {class: 'panel term'}, head, this.panes));
+    this.keysEl = h('div', {class: 'tkeys', role: 'toolbar', 'aria-label': 'Touches spéciales'}, ...KEYS.map(([t, k]) => {
+      const b = h('button', {type: 'button', class: 'tk' + (k === 'ctrl' || k === 'alt' ? ' mod' : ''), dataset: {k}, text: t});
+      // pointerdown + preventDefault : le terminal garde le focus, le clavier du téléphone ne se ferme pas
+      b.addEventListener('pointerdown', (e) => { e.preventDefault(); this.key(k); });
+      b.addEventListener('click', (e) => e.preventDefault());
+      return b;
+    }), h('button', {type: 'button', class: 'tk', text: 'Coller', onpointerdown: (e) => { e.preventDefault(); this.paste(); }}));
+    w.el.append(h('div', {class: 'panel term'}, head, this.panes, this.keysEl));
+    let keep = null; try { keep = localStorage.getItem('centrol.termKeys'); } catch { /* stockage indisponible */ }
+    this.showKeys(keep === null ? touch() : keep === '1', false);
     w.el.classList.add('ready');
     w.focus = () => { const v = this.views.get(this.active); if (v) v.focus(); };
     this.panes.addEventListener('keydown', (e) => { if (e.ctrlKey && e.shiftKey && e.code === 'KeyT') { e.preventDefault(); e.stopPropagation(); this.add(); } }, true);
     this.load();
+  },
+  showKeys(on, save = true) {
+    this.keysOn = on;
+    this.keysEl.hidden = !on;
+    this.keysBtn.classList.toggle('on', on);
+    if (save) try { localStorage.setItem('centrol.termKeys', on ? '1' : '0'); } catch { /* rien */ }
+    requestAnimationFrame(() => { for (const v of this.views.values()) v.doFit(); });
+  },
+  paintMods() { for (const b of this.keysEl.querySelectorAll('.mod')) { const m = this.mods[b.dataset.k]; b.classList.toggle('on', m > 0); b.classList.toggle('lock', m === 2); } },
+  /** Applique Ctrl / Alt enfoncés (barre de touches) à ce que tape le clavier. */
+  mod(d) {
+    const {ctrl, alt} = this.mods;
+    if (!ctrl && !alt) return d;
+    if (ctrl && d.length === 1) {
+      const c = d.toLowerCase();
+      if (c >= 'a' && c <= 'z') d = String.fromCharCode(c.charCodeAt(0) - 96);
+      else if (d in CTRL) d = String.fromCharCode(CTRL[d]);
+    }
+    if (alt) d = '\x1b' + d;
+    if (ctrl === 1) this.mods.ctrl = 0;
+    if (alt === 1) this.mods.alt = 0;
+    this.paintMods();
+    return d;
+  },
+  key(k) {
+    const v = this.views.get(this.active);
+    if (k === 'ctrl' || k === 'alt') { this.mods[k] = (this.mods[k] + 1) % 3; this.paintMods(); if (v) v.focus(); return; }
+    if (!v) return;
+    let d = k;
+    if (/^[A-DHF]$|^[56]~$/.test(k)) {
+      // flèches, Début, Fin, pages : avec Ctrl ou Alt, la forme « ESC [ 1 ; n X » que comprennent bash, vim, tmux…
+      const n = 1 + (this.mods.alt ? 2 : 0) + (this.mods.ctrl ? 4 : 0);
+      const tilde = k.endsWith('~');
+      d = n > 1 ? (tilde ? `\x1b[${k[0]};${n}~` : `\x1b[1;${n}${k}`) : (tilde ? `\x1b[${k}` : (v.t.modes.applicationCursorKeysMode && 'ABCD'.includes(k) ? '\x1bO' : '\x1b[') + k);
+      if (this.mods.ctrl === 1) this.mods.ctrl = 0;
+      if (this.mods.alt === 1) this.mods.alt = 0;
+      this.paintMods();
+    } else d = this.mod(k);
+    v.send(d);
+    v.focus();
+  },
+  async paste() {
+    const v = this.views.get(this.active);
+    try { const t = await navigator.clipboard.readText(); if (t && v) v.t.paste(t); }
+    catch { toast('Collage refusé par le navigateur : appui long dans le terminal › Coller', 'info', 4000); }
+    if (v) v.focus();
   },
   async load() {
     let list = [];

@@ -516,15 +516,15 @@ export function layoutOverview() {
   const sizeFor = (cols) => Math.min(view === 'blocks' ? 1100 : 1200, (avail - (cols - 1) * gap) / cols);
   let cols;
   if (view === 'blocks') cols = small ? 1 : 2;
-  else if (ovCols()) cols = ovCols();
+  else if (ovCols()) cols = small ? Math.max(1, Math.min(ovCols(), Math.floor((avail + gap) / (80 + gap)))) : ovCols();   // réglage commun à tous les appareils : borné sur téléphone
   else {
     cols = 0;
     for (let k = 1; k <= 6; k++) {
       const cw = sizeFor(k), ch = cw * ratio;
       const tot = topH + titled * secH + secs.reduce((acc, s) => acc + Math.ceil(nSec(s) / k) * (ch + capH + gap) + gap * .3, 0) + pad + 56;   // même calcul que la hauteur finale : pas de petit défilement inutile
-      if (tot <= H && cw >= 220) { cols = k; break; }
+      if (tot <= H && cw >= (small ? 140 : 220)) { cols = k; break; }
     }
-    if (!cols) cols = Math.max(1, Math.min(6, Math.floor((avail + gap) / (260 + gap))));
+    if (!cols) cols = Math.max(small ? 2 : 1, Math.min(6, Math.floor((avail + gap) / ((small ? 150 : 260) + gap))));
     autoCols = cols;
   }
   const cw = sizeFor(cols), ch = cw * ratio;

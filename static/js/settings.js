@@ -3,7 +3,7 @@
 import {tr, trHtml} from './i18n.js';
 import {
   $, h, ic, S, api, toast, toastErr, modal, ask, confirmBox, op, quiet, prefs, appIcon, tip, can, withAdmin,
-  collator, emit, on, Cancelled, iconUrlOf, liveBudget, iconField, elevatePrompt,
+  collator, emit, on, Cancelled, iconUrlOf, liveBudget, iconField, elevatePrompt, isPhone,
 } from './core.js';
 import {LANGS, flag, curLang} from './i18n.js';
 const OS = () => (S.me && S.me.os) || 'Linux';   // nom de la distribution du serveur (Ubuntu, Debian…)
@@ -146,8 +146,11 @@ export function openSettings(id) {
   const nav = h('nav', {class: 'snav2'});
   const content = h('div', {class: 'scontent'});
   const items = SECTIONS.filter((s) => !s.when || s.when());
-  const go = (sid) => {
+  let grid, head, title;
+  const go = (sid, list = false) => {
     current = sid;
+    // téléphone : liste des rubriques en plein écran, puis la rubrique choisie avec un bouton retour
+    if (grid) { grid.classList.toggle('insec', !list); const it = items.find((s) => s.id === sid); title.textContent = tr(list || !isPhone() ? 'Paramètres' : (it && it.label) || 'Paramètres'); }
     for (const b of nav.querySelectorAll('button')) b.classList.toggle('on', b.dataset.id === sid);
     content.replaceChildren();
     content.scrollTop = 0;
@@ -156,8 +159,11 @@ export function openSettings(id) {
   };
   for (const s of items) nav.append(s.head ? h('div', {class: 'nh', text: s.head}) : h('button', {type: 'button', dataset: {id: s.id}, html: ic(s.icon, 15) + `<span>${s.label}</span>`, onclick: () => go(s.id)}));
   liveGo = (sid) => go(items.some((s) => s.id === sid) ? sid : 'look');
-  modal({title: 'Paramètres', xwide: true, noFooter: true, cls: 'settings', body: h('div', {class: 'sgrid'}, nav, content)}).then(() => { liveGo = null; });
-  go(id && items.some((s) => s.id === id) ? id : current && items.some((s) => s.id === current) ? current : 'look');
+  grid = h('div', {class: 'sgrid'}, nav, content);
+  modal({title: 'Paramètres', xwide: true, noFooter: true, cls: 'settings', body: grid}).then(() => { liveGo = null; });
+  head = grid.closest('.modal').querySelector('header'); title = head.querySelector('h3');
+  head.prepend(h('button', {class: 'ibtn sback', type: 'button', title: 'Toutes les rubriques', html: ic('left'), onclick: () => go(current, true)}));
+  go(id && items.some((s) => s.id === id) ? id : current && items.some((s) => s.id === current) ? current : 'look', !id && isPhone());
 }
 
 // Vue d'ensemble : la page des réglages et le bouton en bas de l'écran règlent les mêmes valeurs ;
@@ -299,6 +305,7 @@ const BUILD = {
         if (!p.handleSet && ['left', 'right'].includes(v)) quiet(op('prefs.set', {barPos: v, handleSide: 'left', handleSet: true}));
         else setPref('barPos', v);
       })),
+      opt('Sur téléphone', 'Petit écran : à gauche ou à droite, une barre fine d’icônes seules laisse toute la place aux applis', seg([['same', 'Comme ici'], ['left', 'À gauche'], ['right', 'À droite'], ['bottom', 'En bas']], p.mBar || 'same', (v) => setPref('mBar', v))),
       opt('Comportement', 'Toujours visible, masquée après un délai, ou masquée jusqu’à ce que tu la rouvres', seg([
         ['fixed', 'Toujours visible', 'La barre reste affichée'],
         ['auto', 'Masquage auto', 'La barre se replie après le délai ci-dessous quand la souris n’est plus dessus'],

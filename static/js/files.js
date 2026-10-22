@@ -3,7 +3,7 @@
 import {tr, trHtml} from './i18n.js';
 import {
   h, ic, S, api, upload, toast, toastErr, modal, ask, confirmBox, choose, menu, lstore, collator, norm,
-  fmtSize, fmtDate, withAdmin, elevatePrompt, elevLeft, Cancelled, on, debounce,
+  fmtSize, fmtDate, withAdmin, elevatePrompt, elevLeft, Cancelled, on, debounce, touch,
 } from './core.js';
 
 const IMG = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i;
@@ -155,7 +155,8 @@ class Pane {
       oninput: debounce(() => { this.filter = this.filt.value.trim(); this.render(); }, 120)});
     this.bk = ib('left', 'Précédent (Alt+←)', () => this.history(-1));
     this.fw = ib('right', 'Suivant (Alt+→)', () => this.history(1));
-    this.tb = h('div', {class: 'fm-tb'}, this.bk, this.fw, ib('up', 'Dossier parent (Retour arrière)', () => this.go(parent(this.cwd))),
+    this.fw.classList.add('ffw');
+    this.tb = h('div', {class: 'fm-tb'}, h('button', {class: 'ibtn fnav', title: 'Favoris et options', html: ic('menu'), onclick: () => this.fm.nav()}), this.bk, this.fw, ib('up', 'Dossier parent (Retour arrière)', () => this.go(parent(this.cwd))),
       ib('refresh', 'Actualiser (F5)', () => this.reload()), this.crumbs,
       h('div', {class: 'fsw', html: ic('search', 14)}, this.filt),
       ib('folderPlus', 'Nouveau dossier', () => this.newFolder()), ib('filePlus', 'Nouveau fichier', () => this.newFile()),
@@ -244,7 +245,7 @@ class Pane {
   }
   row(e) {
     const path = join(this.cwd, e.name);
-    const el = h('div', {class: 'frow' + (clip && clip.mode === 'cut' && clip.paths.includes(path) ? ' cut' : ''), draggable: 'true', dataset: {name: e.name}, title: path,
+    const el = h('div', {class: 'frow' + (e.dir ? ' isdir' : '') + (clip && clip.mode === 'cut' && clip.paths.includes(path) ? ' cut' : ''), draggable: 'true', dataset: {name: e.name}, title: path,
       onclick: (ev) => this.click(ev, e), ondblclick: () => this.open(e),
       oncontextmenu: (ev) => { ev.preventDefault(); if (!this.sel.has(e.name)) { this.sel = new Set([e.name]); this.anchor = e.name; this.paintSel(); } this.rowMenu(ev); }},
     h('span', {class: 'fi' + (e.dir ? ' d' : ''), html: ic(iconFor(e))}),
@@ -272,7 +273,8 @@ class Pane {
       this.sel = new Set(names.slice(Math.min(a, b), Math.max(a, b) + 1));
     } else if (ev.ctrlKey || ev.metaKey) {
       this.sel.has(e.name) ? this.sel.delete(e.name) : this.sel.add(e.name); this.anchor = e.name;
-    } else { this.sel = new Set([e.name]); this.anchor = e.name; }
+    } else if (touch()) { this.sel = new Set([e.name]); this.anchor = e.name; this.paintSel(); return this.open(e); }   // écran tactile : un appui ouvre (appui long : menu)
+    else { this.sel = new Set([e.name]); this.anchor = e.name; }
     this.paintSel();
   }
   paintSel() {
@@ -599,7 +601,9 @@ export const filesTool = {
     this.panes = [new Pane(this, 0), new Pane(this, 1)];
     this.focusPane = this.panes[0];
     this.editor = new Editor(this);
-    this.root = h('div', {class: 'panel fm'}, this.side, h('div', {class: 'fm-main'}, this.panesEl, this.editor.el));
+    this.root = h('div', {class: 'panel fm'}, this.side, h('div', {class: 'fm-scrim', onclick: () => this.nav(false)}), h('div', {class: 'fm-main'}, this.panesEl, this.editor.el));
+    // téléphone : le panneau de gauche s'ouvre par-dessus le dossier en cours, et se referme dès qu'on choisit
+    this.side.addEventListener('click', (e) => { if (matchMedia('(max-width: 860px)').matches && e.target.closest('.bm')) this.nav(false); });
     w.el.append(this.root); w.el.classList.add('ready');
     w.focus = () => this.focusPane.list.focus({preventScroll: true});
     w.dirty = () => this.editor.docs.some((d) => d.dirty);
@@ -610,6 +614,7 @@ export const filesTool = {
     clearInterval(this.tick);
     this.tick = setInterval(() => { if (this.remaining) this.refreshElev(); }, 20000);
   },
+  nav(on = !this.root.classList.contains('navon')) { this.root.classList.toggle('navon', on); },
   goto(path) { const p = this.focusPane || this.panes[0]; p.go(path); },
   other(p) { return this.dual ? this.panes[p.idx ? 0 : 1] : p; },
   setFocus(p) { this.focusPane = p; this.panes.forEach((x) => x.el.classList.toggle('focus', x === p && this.dual)); },

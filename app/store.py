@@ -54,7 +54,7 @@ DEFAULT_GROUPS = [
 DEFAULT_PREFS = {
     "theme": "dark", "accent": "#7c9cff", "colors": {},
     "barPos": "top", "barMode": "fixed", "barDelay": 3, "handleSide": "right", "handleSet": False, "lang": "",
-    "revealHover": False, "revealDelay": 500, "barCompact": False, "barFav": "follow", "barFavV": 1, "barAlign": "start", "anim": "auto",
+    "revealHover": False, "revealDelay": 500, "barCompact": False, "mBar": "same", "barFav": "follow", "barFavV": 1, "barAlign": "start", "anim": "auto",
     "view": "grid", "gridCols": 0, "favView": None, "favGridCols": None, "favThumbs": None, "previewMax": -1, "ovCats": True,
     "thumbs": "hover", "thumbsV": 3, "peekDelay": 0, "thumbRefresh": 0, "notify": True,
     "termKeep": 60, "termFont": 13, "termScrollback": 10000,
@@ -72,6 +72,7 @@ PREF_RULES = {
     "revealHover": (True, False),
     "revealDelay": (200, 300, 500, 800, 1200),
     "barCompact": (True, False),
+    "mBar": ("same", "left", "right", "bottom", "top"),
     "barFav": (True, False, "follow"),
     "barAlign": ("start", "center", "fill"),
     "anim": ("auto", "on", "off"),

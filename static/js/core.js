@@ -322,6 +322,13 @@ export const emit = (name, detail) => bus.dispatchEvent(new CustomEvent(name, {d
 export const on = (name, fn) => bus.addEventListener(name, (e) => fn(e.detail));
 
 export const prefs = () => (S.profile && S.profile.prefs) || {};
+/** Petit écran (téléphone) : réglages et dispositions propres au mobile. */
+export const PHONE = matchMedia('(max-width: 760px)');
+export const isPhone = () => PHONE.matches;
+export const touch = () => matchMedia('(pointer: coarse)').matches;
+/** Barre « téléphone » choisie (Paramètres › Barre) : remplace la position habituelle sur petit écran. */
+export const phoneBar = () => isPhone() && ['left', 'right', 'bottom', 'top'].includes(prefs().mBar);
+export const barPos = () => phoneBar() ? prefs().mBar : (prefs().barPos || 'top');
 // vue d'ensemble : présentation et vignettes par ligne propres au filtre « Favoris » (sinon celles de la vue générale)
 export const ovFav = () => !!(S.profile && S.profile.favOnly);
 export const ovView = () => (ovFav() && prefs().favView) || prefs().view || 'grid';

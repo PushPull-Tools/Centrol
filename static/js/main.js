@@ -68,7 +68,7 @@ function applyTheme() {
 let lastPrefs = '';
 function onProfile() {
   applyTheme();
-  const sig = JSON.stringify([prefs().barPos, prefs().barMode, prefs().barCompact, prefs().handleSide, prefs().barAlign]);
+  const sig = JSON.stringify([prefs().barPos, prefs().mBar, prefs().barMode, prefs().barCompact, prefs().handleSide, prefs().barAlign]);
   if (sig !== lastPrefs) { lastPrefs = sig; applyBar(); }
   restartThumbRefresh();
   render();

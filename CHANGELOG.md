@@ -5,6 +5,12 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). Tant qu
 ## [1.0.0] — V1 — 2026-10
 
 ### Ajouté
+- **Téléphone :**
+  - barre d'icônes fine à gauche ou à droite, réglable à part (Paramètres › Barre › Sur téléphone) ;
+  - Paramètres en plein écran : la liste des rubriques, puis la rubrique avec un bouton retour ;
+  - terminal : barre de touches spéciales (Échap, Tab, Ctrl et Alt maintenus, flèches, Début, Fin, pages, ^C, ^D…, Coller), affichée d'office sur écran tactile ;
+  - fichiers : panneau des raccourcis par-dessus le dossier (bouton ☰), lignes sur deux niveaux (taille et date sous le nom), un appui ouvre, un appui long donne le menu ;
+  - vue d'ensemble : colonnes adaptées à l'écran et noms d'applis lisibles.
 - **Comptes et droits :**
   - connexion avec les utilisateurs locaux du serveur, des comptes Centrol, Kerberos (Active Directory, FreeIPA, MIT), LDAP ou SSO OpenID Connect ;
   - double authentification TOTP avec codes de secours ;
