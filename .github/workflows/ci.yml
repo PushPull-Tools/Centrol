@@ -52,3 +52,41 @@ jobs:
       - run: npm install
       - name: Le client de bureau se construit (sans publier)
         run: npx electron-builder --linux dir --publish never
+
+  install:
+    name: Installation neuve sur une machine vierge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Machine de test (utilisateur local, réseau du proxy)
+        run: |
+          sudo useradd -m -s /bin/bash ciadmin
+          echo 'ciadmin:Ci-Passw0rd-42' | sudo chpasswd
+          docker network create ci_proxy
+          sudo mkdir -p /srv/docker && sudo cp -a "$GITHUB_WORKSPACE" /srv/docker/centrol
+      - name: install.sh sans questions
+        run: |
+          cd /srv/docker/centrol
+          sudo ASSUME_YES=1 ADMIN_USER=ciadmin ADMIN_PASSWORD=Ci-Passw0rd-42 PROXY_NETWORK=ci_proxy \
+               CENTROL_URL=http://127.0.0.1:8322 ./install.sh < /dev/null
+      - name: Centrol répond et la connexion fonctionne
+        run: |
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8322/healthz && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8322/login | grep -q '<form'
+          sudo docker exec centrol python -m app.cli list | grep -E '^ciadmin +linux +admin'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -c /tmp/jar -H 'x-centrol: 1' -H 'Content-Type: application/json' \
+                 -d '{"username":"ciadmin","password":"Ci-Passw0rd-42"}' http://127.0.0.1:8322/api/login)
+          [ "$code" = 200 ] || { echo "connexion : $code"; exit 1; }
+          curl -fsS -b /tmp/jar http://127.0.0.1:8322/api/me | grep -q '"admin": *true'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'x-centrol: 1' -H 'Content-Type: application/json' \
+                 -d '{"username":"ciadmin","password":"faux"}' http://127.0.0.1:8322/api/login)
+          [ "$code" = 401 ] || [ "$code" = 403 ] || { echo "mauvais mot de passe accepté : $code"; exit 1; }
+      - name: update.sh sur cette installation
+        run: |
+          cd /srv/docker/centrol
+          sudo ASSUME_YES=1 NO_PULL=1 ./update.sh < /dev/null
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8322/healthz && exit 0; sleep 2; done
+          exit 1
+      - name: Journaux en cas d'échec
+        if: failure()
+        run: sudo docker logs centrol 2>&1 | tail -80 || true

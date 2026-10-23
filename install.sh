@@ -8,7 +8,7 @@
 #  Toutes les questions ont une valeur par défaut entre [crochets] : Entrée = accepter.
 #  Relancer l'installeur met Centrol à jour en gardant la configuration et les données.
 #  Variables facultatives (installation sans questions) : CENTROL_URL, CENTROL_PORT,
-#  PROXY_NETWORK, ADMIN_USER, CENTROL_DIR, CENTROL_GIT, NPM_FIX=o|n, ASSUME_YES=1
+#  PROXY_NETWORK, ADMIN_USER, ADMIN_PASSWORD, CENTROL_DIR, CENTROL_GIT, NPM_FIX=o|n, ASSUME_YES=1
 #  Mise à jour d'une installation existante : sudo ./update.sh
 # =============================================================================
 set -euo pipefail
@@ -29,6 +29,8 @@ ask() {   # ask VAR "Question" "défaut"
 }
 ask_secret() {   # ask_secret VAR "Libellé (dire QUEL mot de passe)"
   local __v=$1 __q=$2 __r=""
+  # installation sans questions (tests automatiques) : mot de passe fourni par ADMIN_PASSWORD
+  if [ -n "${ADMIN_PASSWORD:-}" ]; then printf -v "$__v" '%s' "$ADMIN_PASSWORD"; return; fi
   [ -r $TTY ] || die "Saisie impossible sans terminal : $__q"
   read -rsp "$(printf "${B}🔑${N} %s : " "$__q")" __r < $TTY; echo > $TTY
   printf -v "$__v" '%s' "$__r"

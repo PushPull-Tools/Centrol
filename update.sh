@@ -28,6 +28,8 @@ ask() {
 }
 ask_secret() {
   local __v=$1 __q=$2 __r=""
+  # installation sans questions (tests automatiques) : mot de passe fourni par ADMIN_PASSWORD
+  if [ -n "${ADMIN_PASSWORD:-}" ]; then printf -v "$__v" '%s' "$ADMIN_PASSWORD"; return; fi
   [ -r $TTY ] || die "Saisie impossible sans terminal : $__q"
   read -rsp "$(printf "${B}🔑${N} %s : " "$__q")" __r < $TTY; echo > $TTY
   printf -v "$__v" '%s' "$__r"
