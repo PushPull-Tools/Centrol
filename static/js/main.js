@@ -1,4 +1,5 @@
 /* Centrol — démarrage, temps réel, thème, raccourcis, recherche rapide. */
+import {trace} from './trace.js';
 import {
   $, h, ic, S, api, toast, toastErr, prefs, lstore, on, emit, appOf, nameOf, appIcon, flatApps, catView, tools,
   BUILTIN, toolOn, norm, op, quiet, closeMenu, menuOpen, can, seeUrl, ovView, ovCols, ovKey,
@@ -103,9 +104,10 @@ async function refreshMe() {
 function connect() {
   const es = new EventSource('/api/events');
   const live = $('#live');
-  es.onopen = () => live.classList.remove('off');
+  es.onopen = () => { trace('connexion temps réel ouverte'); live.classList.remove('off'); };
   es.onmessage = (e) => {
     const m = JSON.parse(e.data);
+    if (m.type !== 'stats' && m.type !== 'host') trace('reçu du serveur : ' + m.type);
     if (m.type === 'apps') { notifyChanges(S.apps, m.apps); S.apps = m.apps; render(); restore(); }
     else if (m.type === 'state') { S.profile = m.state; onProfile(); restore(); }
     else if (m.type === 'stats') { supTool.onStats(m); watchAppsHealth(); if (S.mode === 'overview' && ovView() !== 'grid') layoutOverview(); }
@@ -119,7 +121,7 @@ function connect() {
     }
     else if (m.type === 'logout') location.href = '/login';
   };
-  es.onerror = () => { live.classList.add('off'); quiet(api('GET', '/api/me')); };
+  es.onerror = () => { trace('connexion temps réel coupée', true); live.classList.add('off'); quiet(api('GET', '/api/me')); };
 }
 
 // restaure la dernière vue une fois les applis connues

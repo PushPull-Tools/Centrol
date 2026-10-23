@@ -1,4 +1,5 @@
 /* Fenêtres (iframes et outils), vue d'ensemble (grille / blocs / liste), modes, côte à côte. */
+import {trace} from './trace.js';
 import {tr, trHtml} from './i18n.js';
 import {
   $, h, ic, S, BUILTIN, tools, appOf, ov, nameOf, isFav, embedOf, appIcon, badged, catView, op, quiet, emit,
@@ -56,6 +57,7 @@ export function ensureLoaded(k) {
 }
 
 function buildWin(k) {
+  trace(`buildWin(${k})`, k === S.active);
   const w = S.wins.get(k), a = appOf(k);
   w.el.querySelectorAll('iframe,.blocked').forEach((n) => n.remove());
   w.el.classList.remove('ready');
@@ -149,6 +151,7 @@ function endZoom() {
   document.body.classList.remove('zooming');
 }
 export function setMode(mode, key) {
+  trace(`setMode(${mode}, ${key || ''})`, true);
   clearTimeout(zoomT); endZoom();
   if (key) S.active = key;
   if (mode !== 'overview' && !S.wins.has(S.active)) mode = 'overview';
@@ -941,6 +944,7 @@ export function refreshThumb(k) {
   nf.classList.add('buf');
   let done = false;
   const swap = (ok) => {
+    trace(`aperçu rafraîchi : ${k}`, k === S.active);
     if (done) return; done = true;
     if (!ok || !nf.isConnected || w.opened) { nf.remove(); return; }
     nf.classList.remove('buf');
