@@ -132,7 +132,15 @@ class Remote:
             if now - st.get("ping", 0) > 60:
                 p = (await self.get(srv, "/v1/ping")).json()
                 st.update(host=p.get("host"), version=p.get("version"), ping=now)
-            st["cinfo"] = [container_info(c) for c in (await self.get(srv, "/v1/containers")).json()]
+            try:
+                st["cinfo"] = [container_info(c) for c in (await self.get(srv, "/v1/containers")).json()]
+                st["warn"] = None
+            except httpx.HTTPStatusError as e:     # machine joignable, Docker illisible (ex. mode protection de Home Assistant)
+                st["cinfo"] = []
+                try:
+                    st["warn"] = "Conteneurs illisibles : " + e.response.json().get("error", "")[:160]
+                except ValueError:
+                    st["warn"] = "Conteneurs illisibles"
             icons = self.mon.disc.icons if self.mon.disc else None
             for c in st["cinfo"] if icons else []:
                 icons.want(f"ctr:{c['name']}@{srv['id']}", icon_candidates(c, "") + ["docker"], [], lambda: None)
@@ -232,7 +240,7 @@ class Remote:
         for s in self.servers():
             st, hm = self.state.get(s["id"], {}), self.hosts.get(s["id"])
             L = hm.latest if hm else {}
-            out.append({"id": s["id"], "name": s["name"], "ok": st.get("ok"), "error": st.get("error"),
+            out.append({"id": s["id"], "name": s["name"], "ok": st.get("ok"), "error": st.get("error"), "warn": st.get("warn"),
                         "cpu": L.get("cpu"), "memUsed": L.get("memUsed"), "memTotal": L.get("memTotal"),
                         "hostStats": bool(hm and hm.latest and not hm.error)})
         return out
@@ -242,7 +250,7 @@ class Remote:
         for s in self.store.settings.get("servers", []):
             st = self.state.get(s["id"], {})
             out.append({"id": s["id"], "ok": st.get("ok"), "error": st.get("error"), "host": st.get("host"),
-                        "version": st.get("version"), "at": st.get("at"),
+                        "version": st.get("version"), "at": st.get("at"), "warn": st.get("warn"),
                         "count": len(st.get("cinfo", [])), "running": sum(c["running"] for c in st.get("cinfo", []))})
         return out
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import procs
 import sources
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
 TOKEN = os.environ.get("CENTROL_AGENT_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8323"))
@@ -33,7 +33,10 @@ class UnixConn(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.settimeout(15)
-        self.sock.connect(SOCK)
+        try:
+            self.sock.connect(SOCK)
+        except OSError as e:
+            raise RuntimeError("Docker inaccessible (" + SOCK + ") : sur Home Assistant OS, désactivez le mode protection du module") from e
 
 
 def docker(path: str) -> tuple[int, bytes, str]:
@@ -132,7 +135,7 @@ class H(http.server.BaseHTTPRequestHandler):
         p = u.path.rstrip("/")
         try:
             if p == "/v1/ping":
-                return self.send(200, {"ok": True, "version": VERSION, "host": rd(ROOT / "etc/hostname").strip() or socket.gethostname(),
+                return self.send(200, {"ok": True, "version": VERSION, "docker": os.path.exists(SOCK), "host": rd(ROOT / "etc/hostname").strip() or socket.gethostname(),
                                        "npm": NPM_DB.exists() and NPM_DB.stat().st_size > 0, "proxies": True, "hostStats": (PROC / "stat").exists()})
             if p == "/v1/containers":
                 code, body, ct = docker("/containers/json?all=1")

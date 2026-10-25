@@ -47,13 +47,16 @@ def main():
     if len(tok) < 24:
         sys.exit("Jeton trop court : 24 caractères minimum (ou laissez le champ vide pour qu'il soit créé tout seul).")
     port = str(opts.get("port") or 8323)
-    env = dict(os.environ, CENTROL_AGENT_TOKEN=tok, PORT=port, DOCKER_SOCK="/run/docker.sock", NPM_DB="/nonexistent",
+    sock = next((x for x in ("/run/docker.sock", "/var/run/docker.sock") if os.path.exists(x)), "")
+    env = dict(os.environ, CENTROL_AGENT_TOKEN=tok, PORT=port, DOCKER_SOCK=sock or "/run/docker.sock", NPM_DB="/nonexistent",
                HOST_PROC="/proc", HOST_SYS="/sys", HOST_ROOT=host_root())
     print("=" * 64)
     print(" Centrol Agent est en marche sur le port " + port)
     print(" Dans Centrol : Paramètres › Serveurs › Ajouter un serveur")
     print("   Adresse : http://<adresse de cette machine>:" + port)
     print("   Jeton   : " + (tok if auto else "celui saisi dans la configuration du module"))
+    if not sock:
+        print(" ! Conteneurs illisibles : désactivez « Mode protection » (onglet Infos) puis redémarrez le module.")
     print("=" * 64, flush=True)
     os.execvpe(sys.executable, [sys.executable, "-u", "agent.py"], env)
 

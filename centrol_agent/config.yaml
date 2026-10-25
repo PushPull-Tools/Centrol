@@ -1,5 +1,5 @@
 name: Centrol Agent
-version: "1.1.0"
+version: "1.1.1"
 slug: centrol_agent
 description: Surveillez cette machine Home Assistant depuis Centrol (processeur, mémoire, disques, réseau, conteneurs, journaux), en lecture seule.
 url: https://github.com/PushPull-Tools/Centrol/tree/main/centrol_agent

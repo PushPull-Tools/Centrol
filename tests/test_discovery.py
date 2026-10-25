@@ -116,3 +116,31 @@ def test_appli_en_reseau_hote_renommee():
     got, how = match(p, [c])
     assert got is c and how == "réseau hôte"
     assert known(c, "standard.ex.org", False)[0] == "LocalPhone"
+
+
+def test_serveur_sans_docker_reste_joignable(monkeypatch):
+    """Agent joignable mais Docker illisible (mode protection de Home Assistant) : machine affichée, avertissement clair."""
+    import asyncio
+    import httpx
+    from app.remote import Remote
+
+    def handler(req):
+        if req.url.path == "/v1/containers":
+            return httpx.Response(502, json={"error": "Docker inaccessible (/run/docker.sock)"})
+        if req.url.path == "/v1/ping":
+            return httpx.Response(200, json={"ok": True, "host": "ha", "version": "1.1.1"})
+        return httpx.Response(500, text="x")
+
+    class Mon:
+        disc = None
+        remote = None
+        def record(self, *a): pass
+    srv = {"id": "ha", "name": "HA", "url": "http://ha:8323", "token": "t" * 30, "enabled": True}
+
+    class Store:
+        settings = {"servers": [srv]}
+    r = Remote(Store(), Mon(), None)
+    r.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    asyncio.run(r._one(srv, 1000.0))
+    st = r.status()[0]
+    assert st["ok"] is True and "Docker inaccessible" in st["warn"] and st["count"] == 0

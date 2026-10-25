@@ -811,8 +811,8 @@ const BUILD = {
         h('tbody', null, list.map((x) => { const st = stOf(x.id); return h('tr', {class: x.enabled ? '' : 'dim'},
           h('td', null, h('b', {notr: true, text: x.name}), st.host ? h('small', {class: 'muted', notr: true, text: ' · ' + st.host}) : null),
           h('td', {class: 'mono', notr: true, text: x.url}),
-          h('td', null, !x.enabled ? h('span', {class: 'muted', text: 'désactivé'}) : st.ok ? h('span', {class: 'pill ok', text: tr('{0} conteneurs, {1} actifs').replace('{0}', st.count).replace('{1}', st.running)})
-            : st.ok === false ? h('span', {class: 'pill ko', title: st.error, text: 'Injoignable'}) : h('span', {class: 'muted', text: 'en attente…'})),
+          h('td', null, !x.enabled ? h('span', {class: 'muted', text: 'désactivé'}) : st.ok && st.warn ? h('span', {class: 'pill warn', title: st.warn, text: 'Joignable · conteneurs illisibles'}) : st.ok ? h('span', {class: 'pill ok', text: tr('{0} conteneurs, {1} actifs').replace('{0}', st.count).replace('{1}', st.running)})
+            : st.ok === false ? h('span', {class: 'pill ko', title: st.error, text: /jeton/.test(st.error || '') ? 'Jeton refusé' : 'Injoignable'}) : h('span', {class: 'muted', text: 'en attente…'})),
           h('td', {class: 'acts'}, sw(x.enabled, (v) => { x.enabled = v; return save().catch((e) => { x.enabled = !v; throw e; }); }, 'Activé'),
             h('button', {class: 'ibtn', title: 'Modifier', html: ic('edit', 15), onclick: () => edit(x)}),
             h('button', {class: 'ibtn', title: 'Supprimer', html: ic('trash', 15), onclick: async () => { if (await confirmBox('Retirer ce serveur ?', x.name, 'Retirer')) { list = list.filter((y) => y !== x); save().catch(() => {}); } }})));
