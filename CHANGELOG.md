@@ -5,6 +5,7 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). Tant qu
 ## [1.0.0] — V1 — 2026-10
 
 ### Ajouté
+- **Ménage Docker détaillé :** chaque conteneur arrêté, image et volume inutilisé est listé avec l'appli à laquelle il appartenait, se coche un par un, puis une 2e fenêtre récapitule et explique ce qui sera supprimé (case de plus pour les volumes) ; tout est revérifié juste avant.
 - **Home Assistant OS :** Centrol Agent en module complémentaire (dépôt `https://github.com/PushPull-Tools/Centrol`), jeton créé tout seul et affiché dans le journal du module.
 - **Téléphone :**
   - barre d'icônes fine à gauche ou à droite, réglable à part (Paramètres › Barre › Sur téléphone) ;

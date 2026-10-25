@@ -174,29 +174,80 @@ export const supTool = {
     catch (e) { if (!(e instanceof Cancelled)) toastErr(e); }
   },
   async cleanup() {
+    const why = 'Le ménage de Docker demande ton mot de passe sudo.';
     let df;
-    try { df = await withAdmin(() => api('POST', '/api/docker/df'), 'Le ménage de Docker demande ton mot de passe sudo.'); } catch (e) { if (!(e instanceof Cancelled)) toastErr(e); return; }
-    const KINDS = [['containers', 'Conteneurs arrêtés', 'containers', true], ['images', 'Images inutilisées (par aucun conteneur)', 'images', true],
-      ['networks', 'Réseaux inutilisés', null, true], ['build', 'Cache de construction', 'build', true], ['volumes', 'Volumes inutilisés', 'volumes', false]];
-    const pick = {};
-    const rows = KINDS.map(([k, label, dk, on]) => {
-      pick[k] = on;
-      const x = dk && df[dk];
-      return h('label', {class: 'trow' + (k === 'volumes' ? ' danger' : '')}, h('input', {type: 'checkbox', checked: on, onchange: (e) => { pick[k] = e.target.checked; }}),
-        h('div', {class: 'tt'}, h('b', {text: label}), h('small', {text: k === 'volumes' ? tr('Attention : les données des applis supprimées sont effacées définitivement.') : x ? tr('{0} récupérables').replace('{0}', fmtSize(x.reclaimable)) : ''})),
-        x ? h('small', {class: 'muted', text: tr('{0} au total').replace('{0}', fmtSize(x.size))}) : null);
-    });
-    const ok = await modal({title: 'Faire le ménage dans Docker', ok: 'Nettoyer', danger: true, body: [
-      h('p', {class: 'hint', text: 'Supprime ce que plus aucun conteneur n’utilise. Les conteneurs en marche, leurs images et leurs données ne sont jamais touchés.'}), ...rows]});
-    if (!ok) return;
-    const what = Object.keys(pick).filter((k) => pick[k]);
-    if (!what.length) return;
+    try { df = await withAdmin(() => api('POST', '/api/docker/df'), why); } catch (e) { if (!(e instanceof Cancelled)) toastErr(e); return; }
+    const it = df.items || null;
+    // chaque élément : case à cocher, appli d'origine, taille ; une case par section coche ou décoche tout
+    const SECS = [
+      ['containers', 'Conteneurs arrêtés', true, (x) => [x.name, x.app, [x.image, x.status].filter(Boolean).join(' · ')], (x) => x.name],
+      ['images', 'Images que plus aucun conteneur n’utilise', true, (x) => [x.ref, x.app, x.created], (x) => x.id],
+      ['volumes', 'Volumes que plus aucun conteneur n’utilise', false, (x) => [x.name, x.app || x.project, ''], (x) => x.name]];
+    const picked = {containers: new Set(), images: new Set(), volumes: new Set()}, bulk = {networks: true, build: true};
+    const body = [h('p', {class: 'hint', text: 'Coche ce que tu veux supprimer. Rien de ce qui tourne n’est jamais touché ; tout est revérifié juste avant.'})];
+    for (const [k, title, on, cols, key] of SECS) {
+      const list = it ? it[k] || [] : null;
+      if (list && !list.length) continue;
+      const boxes = [];
+      const all = h('input', {type: 'checkbox', checked: on, onchange: () => { for (const b of boxes) { b.checked = all.checked; b.onchange(); } }});
+      const total = list ? list.reduce((a, x) => a + (x.size || 0), 0) : (df[k] || {}).reclaimable || 0;
+      const head = h('label', {class: 'trow' + (k === 'volumes' ? ' danger' : '')}, all,
+        h('div', {class: 'tt'}, h('b', {text: title}), h('small', {text: k === 'volumes' ? tr('Attention : les données des applis supprimées sont effacées définitivement.')
+          : list ? tr('{0} élément(s)').replace('{0}', list.length) : ''})), h('small', {class: 'muted', text: fmtSize(total)}));
+      body.push(head);
+      if (!list) { if (on) picked[k].add('*'); all.onchange = () => { picked[k][all.checked ? 'add' : 'delete']('*'); }; continue; }
+      const rows = h('div', {class: 'prune-list'});
+      for (const x of list) {
+        const [name, app, sub] = cols(x), id = key(x);
+        const b = h('input', {type: 'checkbox', checked: on});
+        b.onchange = () => { picked[k][b.checked ? 'add' : 'delete'](id); all.checked = boxes.every((y) => y.checked); all.indeterminate = !all.checked && boxes.some((y) => y.checked); };
+        boxes.push(b); if (on) picked[k].add(id);
+        rows.append(h('label', {class: 'prow2'}, b, h('div', {class: 'pt'}, h('span', {class: 'pn', notr: true, text: name}),
+          app ? h('span', {class: 'pill', notr: true, title: tr('Appli à laquelle il appartenait'), text: app}) : h('span', {class: 'muted', text: 'appli inconnue'}),
+          sub ? h('small', {class: 'muted', notr: true, text: sub}) : null), h('small', {class: 'muted', text: fmtSize(x.size || 0)})));
+      }
+      body.push(rows);
+    }
+    for (const [k, label] of [['networks', 'Réseaux que plus aucun conteneur n’utilise'], ['build', 'Cache de construction des images']]) {
+      body.push(h('label', {class: 'trow'}, h('input', {type: 'checkbox', checked: true, onchange: (e) => { bulk[k] = e.target.checked; }}),
+        h('div', {class: 'tt'}, h('b', {text: label})), k === 'build' && df.build ? h('small', {class: 'muted', text: fmtSize(df.build.reclaimable)}) : null));
+    }
+    if (!(await modal({title: 'Faire le ménage dans Docker', ok: 'Continuer…', wide: true, body}))) return;
+
+    // 2e validation : la liste exacte, ce que ça implique, et une case de plus pour les volumes
+    const sel = Object.fromEntries(Object.entries(picked).map(([k, v]) => [k, [...v]]));
+    const lists = it || {};
+    const nameOf = (k, id) => { const x = (lists[k] || []).find((y) => (k === 'images' ? y.id : y.name) === id); return x ? (k === 'images' ? x.ref : x.name) + (x.app ? ' — ' + x.app : '') : id; };
+    const EXPLAIN = {containers: 'Supprimés définitivement. Leur fichier docker-compose reste en place : un redéploiement de la stack les recrée.',
+      images: 'Effacées du disque. Elles seront retéléchargées automatiquement si une appli en a de nouveau besoin.',
+      volumes: 'DONNÉES EFFACÉES DÉFINITIVEMENT (bases de données, réglages, fichiers des applis). Impossible à annuler.',
+      networks: 'Réseaux vides supprimés ; ils sont recréés automatiquement au démarrage des stacks.',
+      build: 'Cache supprimé ; la prochaine construction d’image sera simplement plus longue.'};
+    const TITLES = {containers: 'Conteneurs', images: 'Images', volumes: 'Volumes', networks: 'Réseaux inutilisés', build: 'Cache de construction'};
+    const parts = [];
+    for (const k of ['containers', 'images', 'volumes']) {
+      if (!sel[k].length) continue;
+      parts.push(h('div', {class: 'sum-sec' + (k === 'volumes' ? ' danger' : '')}, h('b', {text: tr(TITLES[k]) + (sel[k][0] === '*' ? '' : ` (${sel[k].length})`)}),
+        h('p', {class: 'hint', text: EXPLAIN[k]}),
+        sel[k][0] === '*' ? h('small', {class: 'muted', text: 'Tous les éléments inutilisés de ce type'}) : h('ul', null, ...sel[k].map((id) => h('li', {notr: true, text: nameOf(k, id)})))));
+    }
+    for (const k of ['networks', 'build']) if (bulk[k]) parts.push(h('div', {class: 'sum-sec'}, h('b', {text: TITLES[k]}), h('p', {class: 'hint', text: EXPLAIN[k]})));
+    if (!parts.length) return toast('Rien n’est coché', 'info');
+    const vol = sel.volumes.length > 0;
+    const sure = h('input', {type: 'checkbox'});
+    const ok2 = await modal({title: 'Confirmer la suppression', ok: 'Supprimer définitivement', danger: true, wide: true, body: [
+      h('p', {text: 'Voici exactement ce qui va être supprimé :'}), ...parts,
+      vol ? h('label', {class: 'trow danger'}, sure, h('div', {class: 'tt'}, h('b', {text: 'J’ai compris que les données de ces volumes seront perdues pour toujours'}))) : null],
+      onOk: () => { if (vol && !sure.checked) throw new Error('Coche la case pour confirmer la suppression des données.'); }});
+    if (!ok2) return;
+    const items = {}, what = Object.keys(bulk).filter((k) => bulk[k]);
+    for (const k of ['containers', 'images', 'volumes']) { if (sel[k][0] === '*') what.push(k); else if (sel[k].length) items[k] = sel[k]; }
     const t = toast('Ménage en cours…', 'info', 0);
     try {
-      const r = await withAdmin(() => api('POST', '/api/docker/prune', {what}), 'Le ménage de Docker demande ton mot de passe sudo.');
+      const r = await withAdmin(() => api('POST', '/api/docker/prune', {what, items}), why);
       t.close();
       const bad = r.steps.filter((x) => !x.ok);
-      toast(tr('Ménage terminé : {0} récupérés').replace('{0}', fmtSize(r.freed)) + (bad.length ? ' · ' + tr('échec : {0}').replace('{0}', bad.map((x) => tr(x.label)).join(', ')) : ''), bad.length ? 'warn' : 'info', 8000);
+      toast(tr('Ménage terminé : {0} récupérés').replace('{0}', fmtSize(r.freed)) + (bad.length ? ' · ' + tr('échec : {0}').replace('{0}', bad.map((x) => tr(x.label) + (x.error ? ' (' + x.error + ')' : '')).join(', ')) : ''), bad.length ? 'warn' : 'info', 10000);
     } catch (e) { t.close(); if (!(e instanceof Cancelled)) toastErr(e); }
   },
   async stacks() {

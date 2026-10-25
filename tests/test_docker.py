@@ -1,5 +1,6 @@
 """Gestion Docker avancée : fiche, suppression, ménage, stacks, console — avec un faux serveur SSH."""
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -258,3 +259,40 @@ def test_arreter_un_processus(env, alice):
     assert c.post("/api/host/kill", json={"pid": 1}, headers=HDR).status_code == 400
     assert c.post("/api/host/kill", json={"pid": 4242, "force": True}, headers=HDR).status_code == 200
     assert fake.cmds[-1] == "kill -KILL -- 4242"
+
+
+DFV = json.dumps({
+    "Images": [{"Repository": "jellyfin/jellyfin", "Tag": "10.9", "ID": "aaa111bbb222", "Size": "1.2GB", "Containers": "0", "CreatedSince": "3 months ago"},
+               {"Repository": "louislam/uptime-kuma", "Tag": "1", "ID": "ccc333", "Size": "400MB", "Containers": "1"},
+               {"Repository": "<none>", "Tag": "<none>", "ID": "ddd444", "Size": "50MB", "Containers": "0"}],
+    "Containers": [{"Names": "vieux-jelly", "Image": "jellyfin/jellyfin:10.8", "State": "exited", "Status": "Exited (0) 2 weeks ago", "Size": "12MB",
+                    "Labels": "com.docker.compose.project=jellyfin"},
+                   {"Names": "kuma", "Image": "louislam/uptime-kuma", "State": "running", "Status": "Up 3 days", "Size": "1MB"}],
+    "Volumes": [{"Name": "immich_pgdata", "Links": "0", "Size": "2GB"}, {"Name": "kuma_data", "Links": "1", "Size": "10MB"}]})
+
+
+def test_menage_detail_par_appli(env):
+    """Chaque élément inutilisé est listé avec l'appli à laquelle il appartenait."""
+    from app.dockerops import df_items
+    d = df_items(DFV, [])
+    assert [(x["name"], x["app"]) for x in d["containers"]] == [("vieux-jelly", "Jellyfin")]
+    assert [x["ref"] for x in d["images"]][0] == "jellyfin/jellyfin:10.9" and d["images"][0]["app"] == "Jellyfin" and len(d["images"]) == 2
+    assert [(x["name"], x["project"], x["app"]) for x in d["volumes"]] == [("immich_pgdata", "immich", "Immich")]
+
+
+def test_menage_coche_par_element_et_reverifie(env):
+    fake, c = env
+    root(c)
+    real = fake.run
+
+    async def run(cmd, stdin=b"", sudo=None, as_user=None, timeout=60):
+        if "system df -v" in cmd:
+            fake.cmds.append(cmd)
+            return 0, DFV.encode() + b"\n", b""
+        return await real(cmd, stdin, sudo, as_user, timeout)
+    fake.run = run
+    r = c.post("/api/docker/prune", json={"what": ["build"], "items": {"volumes": ["immich_pgdata", "kuma_data"], "images": ["aaa111bbb222"]}}, headers=HDR).json()
+    assert "docker volume rm -- immich_pgdata" in fake.cmds and "docker rmi -- aaa111bbb222" in fake.cmds
+    assert not any("kuma_data" in x for x in fake.cmds)                      # encore utilisé : laissé en place
+    assert any(not s["ok"] and "kuma_data" in s["label"] for s in r["steps"])
+    assert not any("volume prune" in x or "image prune" in x for x in fake.cmds)   # jamais de suppression en bloc ici

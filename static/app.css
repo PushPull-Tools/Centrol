@@ -1205,3 +1205,14 @@ body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
   .fm.navon .fm-scrim { display: block; position: absolute; inset: 0; z-index: 5; background: rgba(5, 7, 12, .45); }
 }
 @keyframes slidein { from { transform: translateX(-100%); } }
+/* ménage Docker : détail par élément */
+.prune-list { display: flex; flex-direction: column; gap: 2px; margin: -4px 0 8px 30px; max-height: 260px; overflow-y: auto; }
+.prow2 { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.prow2:hover { background: var(--panel2); }
+.prow2 .pt { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prow2 .pn { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+.sum-sec { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel2); }
+.sum-sec.danger { border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+.sum-sec.danger b { color: var(--danger); }
+.sum-sec .hint { margin: 4px 0 6px; }
+.sum-sec ul { margin: 0; padding-left: 18px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; max-height: 180px; overflow-y: auto; }

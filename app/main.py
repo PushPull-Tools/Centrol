@@ -1477,8 +1477,9 @@ async def docker_df(s=Depends(require)):
 @app.post("/api/docker/prune")
 async def docker_prune(req: Request, s=Depends(require)):
     e = _root(s)
-    what = [str(x) for x in (await req.json()).get("what") or []]
-    return await _ops(s, ops.prune(what, e["pw"], s["eff"]["linux"]))
+    body = await req.json()
+    what = [str(x) for x in body.get("what") or []]
+    return await _ops(s, ops.prune(what, e["pw"], s["eff"]["linux"], body.get("items") if isinstance(body.get("items"), dict) else None))
 
 
 @app.get("/api/docker/stacks")

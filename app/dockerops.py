@@ -26,6 +26,61 @@ PRUNE = {
 COMPOSE_NAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 
 
+def _labels(v) -> dict:
+    if isinstance(v, dict):
+        return v
+    out = {}
+    for part in (v or "").split(","):
+        if "=" in part:
+            k, val = part.split("=", 1)
+            out[k.strip()] = val.strip()
+    return out
+
+
+def app_of(*hints: str, labels: dict | None = None) -> str:
+    """Nom de l'appli à laquelle appartenait un conteneur, une image ou un volume (appli connue, sinon projet compose)."""
+    from .discovery import known
+    labels = labels or {}
+    hay = " ".join(h for h in hints if h)
+    name = known({"image": hay, "name": labels.get("com.docker.compose.project", ""), "labels": labels}, "", False)[0]
+    return name or labels.get("com.docker.compose.project") or ""
+
+
+def df_items(text: str, cinfo: list) -> dict:
+    """Détail de « docker system df -v » : conteneurs arrêtés, images et volumes que plus rien n'utilise."""
+    try:
+        d = json.loads(text.strip().splitlines()[0]) if text.strip() else {}
+    except (ValueError, IndexError):
+        return {}
+    by = {c["name"]: c for c in cinfo}
+    out = {"containers": [], "images": [], "volumes": []}
+    for c in d.get("Containers") or []:
+        if (c.get("State") or "").lower() == "running" or "Up " in (c.get("Status") or ""):
+            continue
+        name = (c.get("Names") or "").lstrip("/")
+        lb = (by.get(name) or {}).get("labels") or _labels(c.get("Labels"))
+        out["containers"].append({"name": name, "image": c.get("Image", ""), "status": c.get("Status", ""), "size": _size(c.get("Size", "")),
+                                  "project": lb.get("com.docker.compose.project", ""), "app": app_of(c.get("Image", ""), name, labels=lb)})
+    for i in d.get("Images") or []:
+        if str(i.get("Containers", "0")) not in ("0", ""):
+            continue
+        repo, tag = i.get("Repository", ""), i.get("Tag", "")
+        ref = repo + (":" + tag if tag and tag != "<none>" else "") if repo != "<none>" else ""
+        out["images"].append({"id": (i.get("ID") or ""), "ref": ref or "(image sans nom) " + (i.get("ID") or "")[:19], "size": _size(i.get("Size", "")),
+                              "created": i.get("CreatedSince", ""), "app": app_of(repo) if ref else ""})
+    for v in d.get("Volumes") or []:
+        if str(v.get("Links", "0")) not in ("0", ""):
+            continue
+        lb = _labels(v.get("Labels"))
+        name = v.get("Name", "")
+        proj = lb.get("com.docker.compose.project") or (name.split("_", 1)[0] if "_" in name and len(name) < 64 else "")
+        out["volumes"].append({"name": name, "size": _size(v.get("Size", "")), "project": proj,
+                               "app": app_of(name, proj, labels={**lb, "com.docker.compose.project": proj} if proj else lb)})
+    for k in out:
+        out[k].sort(key=lambda x: -x["size"])
+    return out
+
+
 class DockerError(Exception):
     pass
 
@@ -128,13 +183,41 @@ class DockerOps:
             if k:
                 res[k] = {"total": j.get("TotalCount"), "active": j.get("Active"), "size": _size(j.get("Size", "")),
                           "reclaimable": _size(j.get("Reclaimable", ""))}
+        # le détail : ce qui partira, et à quelle appli ça appartenait
+        code, out, _ = await self._run("docker system df -v --format '{{json .}}'", pw, linux, timeout=120)
+        if code == 0:
+            res["items"] = df_items(out, self.disc.cinfo)
         return res
 
-    async def prune(self, what: list, pw: str, linux: str) -> dict:
-        steps = [k for k in PRUNE if k in what]
-        if not steps:
+    async def prune(self, what: list, pw: str, linux: str, items: dict | None = None) -> dict:
+        """Ménage. items = {containers|images|volumes: [noms ou ids cochés un par un]} : seuls ceux-là sont supprimés,
+        et seulement s'ils sont toujours inutilisés (revérifié ici, juste avant)."""
+        items = {k: [str(x) for x in (items or {}).get(k) or []] for k in ("containers", "images", "volumes")}
+        steps = [k for k in PRUNE if k in what and not items.get(k)]
+        if not steps and not any(items.values()):
             raise DockerError("Rien de choisi")
         done, freed = [], 0.0
+        if any(items.values()):
+            code, out, err = await self._run("docker system df -v --format '{{json .}}'", pw, linux, timeout=120)
+            if code != 0:
+                raise DockerError((err or out).strip()[-300:] or "Lecture impossible")
+            now = df_items(out, self.disc.cinfo)
+            allowed = {"containers": {x["name"]: x for x in now.get("containers", [])},
+                       "images": {x["id"]: x for x in now.get("images", [])},
+                       "volumes": {x["name"]: x for x in now.get("volumes", [])}}
+            cmds = {"containers": "docker rm --", "images": "docker rmi --", "volumes": "docker volume rm --"}
+            labels = {"containers": "Conteneur", "images": "Image", "volumes": "Volume"}
+            for k in ("containers", "images", "volumes"):
+                for ref in items[k]:
+                    x = allowed[k].get(ref)
+                    if not x or ref in PROTECTED_STOP or ref in C.SELF_NAMES or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", ref):
+                        done.append({"what": k, "label": f"{labels[k]} {ref}", "ok": False, "freed": 0, "error": "n'est plus inutilisé : laissé en place"})
+                        continue
+                    code, out, err = await self._run(f"{cmds[k]} {ref}", pw, linux, timeout=300)
+                    n = x["size"] if code == 0 else 0
+                    freed += n
+                    done.append({"what": k, "label": f"{labels[k]} {x.get('name') or x.get('ref')}", "ok": code == 0, "freed": n,
+                                 "error": None if code == 0 else (err or out).strip()[-300:]})
         for k in steps:
             code, out, err = await self._run(PRUNE[k][1], pw, linux, timeout=900)
             m = re.search(r"Total reclaimed space:\s*(\S+)", out)
