@@ -1,0 +1,7 @@
+configuration:
+  token:
+    name: Jeton
+    description: Laissez vide pour qu'un jeton soit créé tout seul (affiché dans le journal du module). 24 caractères minimum si vous le choisissez.
+  port:
+    name: Port
+    description: Port sur lequel Centrol interroge l'agent (8323 par défaut).

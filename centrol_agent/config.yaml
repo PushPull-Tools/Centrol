@@ -1,0 +1,22 @@
+name: Centrol Agent
+version: "1.1.0"
+slug: centrol_agent
+description: Surveillez cette machine Home Assistant depuis Centrol (processeur, mémoire, disques, réseau, conteneurs, journaux), en lecture seule.
+url: https://github.com/PushPull-Tools/Centrol/tree/main/centrol_agent
+arch:
+  - aarch64
+  - amd64
+startup: services
+boot: auto
+init: false
+host_network: true
+host_pid: true
+docker_api: true
+privileged:
+  - SYS_PTRACE
+options:
+  token: ""
+  port: 8323
+schema:
+  token: password?
+  port: port

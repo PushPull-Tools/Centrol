@@ -1,0 +1,7 @@
+configuration:
+  token:
+    name: Token
+    description: Leave empty to generate one automatically (shown in the add-on log). At least 24 characters if you set it.
+  port:
+    name: Port
+    description: Port Centrol uses to reach the agent (8323 by default).

@@ -14,6 +14,29 @@ def by_domain(lst):
 def test_meme_fichier_pour_centrol_et_l_agent():
     for f in ("sources.py", "procs.py"):
         assert filecmp.cmp(ROOT / "app" / f, ROOT / "agent" / f, shallow=False), f
+    for f in ("agent.py", "sources.py", "procs.py"):          # module Home Assistant : copie exacte de l'agent
+        assert filecmp.cmp(ROOT / "agent" / f, ROOT / "centrol_agent" / f, shallow=False), f
+
+
+def test_module_home_assistant(tmp_path, monkeypatch):
+    """Configuration valide pour Home Assistant, jeton créé une fois puis gardé, version alignée sur l'agent."""
+    import importlib
+    import re
+    import sys
+    import yaml
+    cfg = yaml.safe_load((ROOT / "centrol_agent/config.yaml").read_text())
+    assert cfg["slug"] == "centrol_agent" and cfg["docker_api"] and cfg["host_pid"] and "aarch64" in cfg["arch"]
+    assert set(cfg["options"]) == set(cfg["schema"])
+    assert cfg["version"] == re.search(r'VERSION = "([^"]+)"', (ROOT / "agent/agent.py").read_text()).group(1)
+    assert yaml.safe_load((ROOT / "repository.yaml").read_text())["name"]
+    monkeypatch.setenv("ADDON_DATA", str(tmp_path))
+    monkeypatch.syspath_prepend(str(ROOT / "centrol_agent"))
+    sys.modules.pop("run", None)
+    run = importlib.import_module("run")
+    t1, auto = run.token({})
+    assert auto and len(t1) >= 24 and run.token({})[0] == t1          # même jeton au redémarrage
+    assert run.token({"token": "x" * 30}) == ("x" * 30, False)
+    sys.modules.pop("run", None)
 
 
 def test_detection_par_image():

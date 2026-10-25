@@ -17,7 +17,7 @@ jobs:
           node-version: "22"
       - name: Dépendances
         run: |
-          pip install -r requirements.txt pytest pytest-playwright
+          pip install -r requirements.txt pytest pytest-playwright pyyaml
           python -m playwright install --with-deps chromium
       - name: Python
         run: |
@@ -33,6 +33,16 @@ jobs:
         run: bash -n install.sh
       - name: Image Docker
         run: docker build -t centrol:ci .
+      - name: Module Home Assistant (Centrol Agent) se construit et répond
+        run: |
+          docker build -t centrol-agent-ha:ci centrol_agent
+          mkdir -p /tmp/ha-data && echo '{"token":"","port":8323}' > /tmp/ha-data/options.json
+          docker run -d --name ci-agent --network host -v /tmp/ha-data:/data -v /var/run/docker.sock:/run/docker.sock:ro centrol-agent-ha:ci
+          sleep 3; docker logs ci-agent
+          T=$(sudo cat /tmp/ha-data/token)
+          curl -fsS -H "Authorization: Bearer $T" http://127.0.0.1:8323/v1/ping | grep -q '"ok": true'
+          curl -fsS -H "Authorization: Bearer $T" http://127.0.0.1:8323/v1/containers | grep -q ci-agent
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8323/v1/ping)" = 401
       - name: L'image démarre et répond
         run: |
           docker run -d --name ci-centrol --tmpfs /data:uid=1000 centrol:ci

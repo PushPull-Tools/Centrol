@@ -92,6 +92,8 @@ cd agent && sudo ./install-agent.sh
 
 Le script demande l'adresse d'écoute (VPN ou réseau local conseillé) et affiche l'adresse et le jeton à coller dans **Paramètres › Serveurs**. L'agent ne fait que lire : aucune action n'est possible à distance. Ouvre son port (8323) uniquement vers le serveur Centrol.
 
+**Home Assistant OS** : ajoute le dépôt `https://github.com/PushPull-Tools/Centrol` dans Paramètres › Modules complémentaires › Boutique › ⋮ › Dépôts, installe **Centrol Agent**, désactive le mode protection et démarre-le : le journal du module affiche le jeton.
+
 **Terminal**
 - Plusieurs terminaux, côte à côte si besoin.
 - Les sessions survivent au rechargement de la page : on retrouve ce qui était affiché. La durée de conservation est réglable.
