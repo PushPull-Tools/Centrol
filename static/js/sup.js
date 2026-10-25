@@ -235,10 +235,14 @@ export const supTool = {
     if (!parts.length) return toast('Rien n’est coché', 'info');
     const vol = sel.volumes.length > 0;
     const sure = h('input', {type: 'checkbox'});
-    const ok2 = await modal({title: 'Confirmer la suppression', ok: 'Supprimer définitivement', danger: true, wide: true, body: [
+    const ok2p = modal({title: 'Confirmer la suppression', ok: 'Supprimer définitivement', danger: true, wide: true, body: [
       h('p', {text: 'Voici exactement ce qui va être supprimé :'}), ...parts,
       vol ? h('label', {class: 'trow danger'}, sure, h('div', {class: 'tt'}, h('b', {text: 'J’ai compris que les données de ces volumes seront perdues pour toujours'}))) : null],
       onOk: () => { if (vol && !sure.checked) throw new Error('Coche la case pour confirmer la suppression des données.'); }});
+    // volumes : bouton grisé tant que la case n'est pas cochée
+    const okBtn = [...document.querySelectorAll('.modal')].pop().querySelector('button[type=submit]');
+    if (vol && okBtn) { okBtn.disabled = true; sure.onchange = () => { okBtn.disabled = !sure.checked; }; }
+    const ok2 = await ok2p;
     if (!ok2) return;
     const items = {}, what = Object.keys(bulk).filter((k) => bulk[k]);
     for (const k of ['containers', 'images', 'volumes']) { if (sel[k][0] === '*') what.push(k); else if (sel[k].length) items[k] = sel[k]; }
