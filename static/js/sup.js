@@ -61,14 +61,17 @@ export const supTool = {
   },
   async act(name, action) {
     const c = S.containers.find((x) => x.name === name) || {name};
-    const words = {start: ['Démarrer', 'démarré'], stop: ['Arrêter', 'arrêté'], restart: ['Redémarrer', 'redémarré'], update: ['Mettre à jour', 'mis à jour']}[action];
+    const words = {start: ['Démarrer', 'démarré'], stop: ['Arrêter', 'arrêté'], restart: ['Redémarrer', 'redémarré'], update: ['Mettre à jour', 'mis à jour'],
+      pause: ['Mettre en pause', 'mis en pause (ses processus sont gelés, rien n’est perdu)'], unpause: ['Reprendre', 'relancé là où il en était'],
+      kill: ['Forcer l’arrêt', 'arrêté immédiatement, sans lui laisser le temps de s’arrêter proprement'],
+      recreate: ['Recréer', 'recréé à partir de son docker-compose (les modifications du fichier sont prises en compte)']}[action];
     const warn = action === 'stop' && /nginx-proxy-manager/.test(c.image || '') ? ' Attention : Centrol passe par NPM, l’interface sera coupée.'
       : action === 'update' ? ' L’image est téléchargée puis le conteneur recréé (docker compose pull + up -d).' : '';
     // arrêter NPM ou le proxy Docker coupe Centrol : on fait taper le nom pour confirmer
     if (action === 'stop' && /nginx-proxy-manager|socket-proxy/.test((c.image || '') + c.name)) {
       const typed = await ask(`Arrêter « ${name} » ?`, {label: `Tape « ${name} » pour confirmer`, hint: 'Ce conteneur fait fonctionner l’accès à toutes tes applis et à Centrol lui-même : tout sera coupé jusqu’à son redémarrage depuis le serveur.', ok: 'Arrêter'});
       if (typed !== name) { if (typed !== null) toast('Nom différent : arrêt annulé', 'info'); return; }
-    } else if (action !== 'start' && !(await confirmBox(`${words[0]} « ${name} » ?`, `Le conteneur sera ${words[1]}.${warn}`, words[0], action === 'stop'))) return;
+    } else if (!['start', 'unpause'].includes(action) && !(await confirmBox(`${words[0]} « ${name} » ?`, `Le conteneur sera ${words[1]}.${warn}`, words[0], action === 'stop'))) return;
     const t = toast(`${words[0]} ${name}…`, 'info', 0);
     try {
       await withAdmin(() => api('POST', '/api/docker/action', {name, action}), 'Piloter les conteneurs demande ton mot de passe sudo.');
@@ -164,6 +167,107 @@ export const supTool = {
       h('div', {class: 'row'}, h('h4', {text: 'Variables d’environnement'}),
         secret && !d.revealed ? h('button', {class: 'btn sm', html: ic('eye', 14) + '<span>Afficher les valeurs secrètes</span>', onclick: (e) => { e.target.closest('form').close(); this.details(name, true); }}) : null),
       tbl(['Nom', 'Valeur'], d.env.map((e) => h('tr', null, h('td', {class: 'mono', notr: true, text: e.key}), h('td', {class: 'mono', notr: true, text: e.secret && !d.revealed ? '••••••••' : e.value}))))]});
+  },
+  async rename(c) {
+    const to = await ask(tr('Renommer « {0} »').replace('{0}', c.name), {label: 'Nouveau nom', value: c.name, ok: 'Renommer',
+      hint: 'Le docker-compose garde l’ancien nom : pense à le changer aussi (container_name), sinon un redéploiement recrée l’ancien. Le lien dans le proxy suit le nom du conteneur.'});
+    if (!to || to === c.name) return;
+    try { await withAdmin(() => api('POST', '/api/docker/res/containers/rename', {name: c.name, to}), 'Renommer un conteneur demande ton mot de passe sudo.'); toast(tr('Renommé en {0}').replace('{0}', to)); this.sel = to; }
+    catch (e) { if (!(e instanceof Cancelled)) toastErr(e); }
+  },
+
+  // ------------------------------------------------------------------ images, réseaux, volumes (comme Portainer)
+  /** Une vue par type : liste filtrable, qui utilise quoi, création et suppression (mode administrateur). */
+  async buildRes(kind) {
+    const T = {images: ['Télécharger une image…', 'download'], networks: ['Créer un réseau…', 'plus'], volumes: ['Créer un volume…', 'plus']}[kind];
+    const filter = h('input', {class: 'inp', placeholder: 'Filtrer…', spellcheck: 'false', oninput: () => this.paintRes()});
+    const unused = h('label', {class: 'chkl'}, h('input', {type: 'checkbox', onchange: () => this.paintRes()}), h('span', {text: 'Inutilisés seulement'}));
+    const sum = h('span', {class: 'muted'});
+    const table = h('div', {class: 'tablewrap res'});
+    this.body.replaceChildren(h('div', {class: 'pr-tb'}, filter, unused, sum, h('span', {class: 'sp'}),
+        h('button', {class: 'btn sm', title: 'Actualiser', html: ic('refresh', 14), onclick: () => this.loadRes()}),
+        h('button', {class: 'btn sm primary', html: ic(T[1], 14) + `<span>${tr(T[0])}</span>`, onclick: () => this.createRes(kind)})), table);
+    this.ui = {res: kind, filter, unused: unused.firstChild, sum, table, list: []};
+    await this.loadRes();
+  },
+  async loadRes() {
+    const u = this.ui; if (!u.res) return;
+    try { u.list = (await api('GET', '/api/docker/res/' + u.res))[u.res]; } catch (e) { u.table.replaceChildren(h('p', {class: 'hint', text: tr(e.message)})); return; }
+    this.paintRes();
+  },
+  paintRes() {
+    const u = this.ui, k = u.res, q = norm(u.filter.value.trim());
+    const pills = (names) => names.length ? names.map((n) => h('span', {class: 'pill ok', notr: true, text: n})) : [h('span', {class: 'muted', text: 'inutilisé'})];
+    const age = (s) => s ? fmtDur(s) : '—';
+    let list = u.list.filter((x) => !q || norm(JSON.stringify(x)).includes(q));
+    if (u.unused.checked) list = list.filter((x) => !x.usedBy.length && !x.builtin);
+    const total = list.reduce((a, x) => a + (x.size || 0), 0);
+    u.sum.textContent = tr('{0} élément(s)').replace('{0}', list.length) + (k === 'images' ? ' · ' + fmtSize(total) : '');
+    const cols = {images: ['Image', 'Appli', 'Utilisée par', 'Taille', 'Âge', ''], networks: ['Réseau', 'Pilote', 'Sous-réseau', 'Conteneurs', ''], volumes: ['Volume', 'Appli', 'Utilisé par', 'Créé le', '']}[k];
+    const rows = list.map((x) => {
+      const del = h('button', {class: 'ibtn', title: 'Supprimer', html: ic('trash', 15), onclick: () => this.removeRes(k, x)});
+      if (k === 'images') return h('tr', null, h('td', null, h('b', {notr: true, text: x.tags[0] || tr('(sans nom)')}), h('small', {class: 'muted mono', notr: true, text: ' ' + x.short + (x.tags.length > 1 ? ' +' + (x.tags.length - 1) : '')})),
+        h('td', {notr: true, text: x.app || '—'}), h('td', null, ...pills(x.usedBy)), h('td', {text: fmtSize(x.size)}), h('td', {text: age(x.age)}), h('td', {class: 'acts'}, del));
+      if (k === 'networks') return h('tr', null, h('td', null, h('b', {notr: true, text: x.name}), x.internal ? h('small', {class: 'muted', text: ' interne'}) : null),
+        h('td', {notr: true, text: x.driver}), h('td', {class: 'mono', notr: true, text: x.subnet || '—'}), h('td', null, ...pills(x.usedBy)),
+        h('td', {class: 'acts'}, x.builtin ? h('small', {class: 'muted', text: 'Docker'}) : h('button', {class: 'ibtn', title: 'Brancher / débrancher un conteneur', html: ic('link', 15), onclick: () => this.plugRes(x)}), x.builtin ? null : del));
+      return h('tr', null, h('td', null, h('b', {notr: true, class: x.anonymous ? 'mono' : '', text: x.anonymous ? x.name.slice(0, 12) + '…' : x.name}), x.anonymous ? h('small', {class: 'muted', text: ' anonyme'}) : null),
+        h('td', {notr: true, text: x.app || x.project || '—'}), h('td', null, ...pills(x.usedBy)), h('td', {text: x.created ? new Date(x.created).toLocaleDateString() : '—'}), h('td', {class: 'acts'}, del));
+    });
+    u.table.replaceChildren(h('table', {class: 'tbl'}, h('thead', null, h('tr', null, ...cols.map((t) => h('th', {text: t})))), h('tbody', null, rows)));
+  },
+  async resOp(kind, op, body, why) {
+    try { await withAdmin(() => api('POST', `/api/docker/res/${kind}/${op}`, body), why); await this.loadRes(); return true; }
+    catch (e) { if (!(e instanceof Cancelled)) toastErr(e); return false; }
+  },
+  async createRes(kind) {
+    if (kind === 'images') {
+      const ref = await ask('Télécharger une image', {label: 'Image', placeholder: 'ex. : jellyfin/jellyfin:latest', ok: 'Télécharger', hint: 'Depuis Docker Hub, ghcr.io ou tout autre registre public.'});
+      if (!ref) return;
+      const t = toast(tr('Téléchargement de {0}…').replace('{0}', ref), 'info', 0);
+      const ok = await this.resOp('images', 'pull', {ref}, 'Télécharger une image demande ton mot de passe sudo.');
+      t.close(); if (ok) toast(tr('{0} téléchargée').replace('{0}', ref));
+      return;
+    }
+    const name = h('input', {class: 'inp mono', placeholder: kind === 'networks' ? 'ex. : mon-reseau' : 'ex. : mes-donnees', spellcheck: 'false'});
+    const subnet = h('input', {class: 'inp mono', placeholder: 'automatique (ex. : 172.30.0.0/24)', spellcheck: 'false'});
+    const internal = h('input', {type: 'checkbox'});
+    const body = [h('label', {class: 'fld'}, h('span', {text: 'Nom'}), name)];
+    if (kind === 'networks') body.push(h('label', {class: 'fld'}, h('span', {text: 'Sous-réseau (facultatif)'}), subnet),
+      h('label', {class: 'trow'}, internal, h('div', {class: 'tt'}, h('b', {text: 'Réseau interne'}), h('small', {text: 'Les conteneurs de ce réseau n’ont pas accès à Internet'}))));
+    const ok = await modal({title: kind === 'networks' ? 'Créer un réseau' : 'Créer un volume', ok: 'Créer', body});
+    if (!ok || !name.value.trim()) return;
+    if (await this.resOp(kind, 'create', {name: name.value.trim(), subnet: subnet.value.trim(), internal: internal.checked}, 'Créer demande ton mot de passe sudo.')) toast(tr('{0} créé').replace('{0}', name.value.trim()));
+  },
+  async plugRes(n) {
+    // brancher un conteneur au réseau, ou débrancher l'un de ceux qui y sont
+    const sel = h('select', {class: 'inp'}, ...S.containers.filter((c) => !c.remote).map((c) =>
+      h('option', {value: c.name, notr: true, text: (n.usedBy.includes(c.name) ? '✓ ' : '') + c.name})));
+    const ok = await modal({title: tr('Réseau {0}').replace('{0}', n.name), ok: 'Valider', body: [
+      h('p', {class: 'hint', text: 'Un conteneur coché (✓) est déjà branché : le choisir le débranche. Sinon, il est branché à ce réseau.'}),
+      h('label', {class: 'fld'}, h('span', {text: 'Conteneur'}), sel)]});
+    if (!ok) return;
+    const pick = sel.value, op = n.usedBy.includes(pick) ? 'disconnect' : 'connect';
+    if (op === 'disconnect' && !(await confirmBox(tr('Débrancher « {0} » ?').replace('{0}', pick), tr('Le conteneur ne pourra plus joindre les autres conteneurs du réseau {0}.').replace('{0}', n.name), 'Débrancher', true))) return;
+    if (await this.resOp('networks', op, {name: n.name, container: pick}, 'Brancher un conteneur demande ton mot de passe sudo.')) toast(op === 'connect' ? tr('{0} branché').replace('{0}', pick) : tr('{0} débranché').replace('{0}', pick));
+  },
+  async removeRes(kind, x) {
+    if (x.usedBy && x.usedBy.length) return toast(tr('Encore utilisé par : {0}. Arrête ou supprime d’abord ces conteneurs.').replace('{0}', x.usedBy.join(', ')), 'info', 6000);
+    const label = kind === 'images' ? (x.tags[0] || x.short) : x.name;
+    const EXPL = {images: 'L’image est effacée du disque. Elle sera retéléchargée si une appli en a de nouveau besoin.',
+      networks: 'Le réseau est supprimé. Les stacks qui le déclarent le recréent à leur prochain démarrage.',
+      volumes: 'DONNÉES EFFACÉES DÉFINITIVEMENT : tout ce que contient ce volume (base de données, réglages, fichiers) disparaît. Impossible à annuler.'};
+    if (kind === 'volumes') {
+      // volume : 2e validation avec case à cocher, bouton grisé tant qu'elle ne l'est pas
+      const sure = h('input', {type: 'checkbox'});
+      const p = modal({title: tr('Supprimer le volume « {0} » ?').replace('{0}', label), ok: 'Supprimer définitivement', danger: true, body: [
+        h('p', {class: 'hint', text: EXPL.volumes}), x.app || x.project ? h('p', null, 'Appli : ', h('b', {notr: true, text: x.app || x.project})) : null,
+        h('label', {class: 'trow danger'}, sure, h('div', {class: 'tt'}, h('b', {text: 'J’ai compris que ces données seront perdues pour toujours'})))]});
+      const okBtn = [...document.querySelectorAll('.modal')].pop().querySelector('button[type=submit]');
+      okBtn.disabled = true; sure.onchange = () => { okBtn.disabled = !sure.checked; };
+      if (!(await p)) return;
+    } else if (!(await confirmBox(tr('Supprimer « {0} » ?').replace('{0}', label), EXPL[kind], 'Supprimer', true))) return;
+    if (await this.resOp(kind, 'remove', kind === 'images' ? {id: x.id.split(':').pop()} : {name: x.name}, 'Supprimer demande ton mot de passe sudo.')) toast(tr('{0} supprimé').replace('{0}', label));
   },
   async remove(c) {
     const typed = await ask(tr('Supprimer « {0} » ?').replace('{0}', c.name), {label: tr('Tape « {0} » pour confirmer').replace('{0}', c.name), ok: 'Supprimer',
@@ -313,7 +417,8 @@ export const supTool = {
   tabsFor() {
     const admin = S.me.admin, local = !this.hostSid;
     return [admin && ['server', 'server', 'Serveur'], ['containers', 'box', 'Conteneurs'], admin && ['procs', 'cpu', 'Processus'],
-      ['dlogs', 'log', 'Journaux Docker'], admin && local && ['slogs', 'fileText', 'Journaux système']].filter(Boolean);
+      ['dlogs', 'log', 'Journaux Docker'], admin && local && ['slogs', 'fileText', 'Journaux système'],
+      admin && local && ['images', 'layers', 'Images'], admin && local && ['networks', 'globe', 'Réseaux'], admin && local && ['volumes', 'hdd', 'Volumes']].filter(Boolean);
   },
   paintNav() {
     const srvs = S.me.admin ? (S.servers || []) : [];
@@ -335,6 +440,7 @@ export const supTool = {
     else if (tab === 'containers') this.buildContainers();
     else if (tab === 'dlogs') this.buildDockerLogs();
     else if (tab === 'procs') this.buildProcs();
+    else if (['images', 'networks', 'volumes'].includes(tab)) this.buildRes(tab);
     else this.buildSysLogs();
   },
   refresh() {
@@ -476,7 +582,7 @@ export const supTool = {
       const el = h('button', {class: 'dk-row' + (c.name === this.sel ? ' on' : '') + (c.running ? '' : ' off'), dataset: {name: c.name}, onclick: () => this.select(c.name), title: `${c.name} — ${c.status}`},
         h('span', {class: 'st' + (c.running ? (c.health === 'unhealthy' ? ' unhealthy' : c.health === 'starting' ? ' starting' : ' run') : '')}),
         this.icon(c, 20),
-        h('span', {class: 'nm'}, h('b', {notr: true, text: c.short || c.name}, c.remote ? h('i', {class: 'srvtag', notr: true, text: c.server}) : null), h('small', {text: (c.update ? '⬆ mise à jour · ' : '') + c.image})),
+        h('span', {class: 'nm'}, h('b', {notr: true, text: c.short || c.name}, c.remote ? h('i', {class: 'srvtag', notr: true, text: c.server}) : null), h('small', {notr: true, text: (c.update ? '⬆ ' + tr('mise à jour') + ' · ' : '') + c.image + ((c.ports || []).length ? ' · ' + c.ports.map((p) => p.split('→')[0]).join(', ') : (c.internal || []).length ? ' · ' + c.internal[0].split('/')[0] : '')})),
         cv, h('span', {class: 'v', text: c.running ? fmtPct(st.cpu || 0) : '—'}), h('span', {class: 'v', text: c.running ? fmtSize(st.mem || 0) : c.state}));
       requestAnimationFrame(() => spark(cv, smooth((this.hist[c.name] || []).map((p) => [p[0], p[1]]), 5), '--s1'));
       return el;
@@ -569,12 +675,20 @@ export const supTool = {
           admin && !c.remote && c.running && S.me.tools.terminal ? h('button', {class: 'btn sm', html: ic('terminal', 14) + '<span>Console</span>', title: 'Ouvrir un terminal dans ce conteneur (docker exec)', onclick: () => this.console(c.name)}) : null,
           admin && !c.remote ? h('button', {class: 'btn sm', html: ic('info', 14) + '<span>Détails</span>', onclick: () => this.details(c.name)}) : null,
           admin && !c.remote ? h('button', {class: 'ibtn', title: 'Plus d’actions', html: ic('more', 16), onclick: (ev) => menu([
+            c.running && c.state !== 'paused' && !c.protected ? {label: 'Mettre en pause', icon: 'pause', action: () => this.act(c.name, 'pause')} : null,
+            c.state === 'paused' ? {label: 'Reprendre', icon: 'play', action: () => this.act(c.name, 'unpause')} : null,
+            c.running && !c.protected ? {label: 'Forcer l’arrêt (kill)', icon: 'stop', danger: true, action: () => this.act(c.name, 'kill')} : null,
+            c.compose ? {label: 'Recréer depuis le docker-compose', icon: 'refresh', action: () => this.act(c.name, 'recreate')} : null,
+            c.protected ? null : {label: 'Renommer…', icon: 'edit', action: () => this.rename(c)},
+            '-',
             c.project ? {label: 'Modifier le docker-compose…', icon: 'edit', action: () => this.editStack(c.project)} : null,
             c.protected ? null : {label: 'Supprimer le conteneur…', icon: 'trash', danger: true, action: () => this.remove(c)}].filter(Boolean), ev.clientX, ev.clientY)}) : null));
       d.info.replaceChildren(
         c.remote ? h('span', null, 'Serveur ', h('b', {notr: true, text: c.server}), ' (lecture seule)') : null,
         h('span', null, 'Image ', h('b', {text: c.image})), h('span', null, 'État ', h('b', {text: c.status})),
-        c.ports.length ? h('span', null, 'Ports ', h('b', {text: c.ports.join(', ')})) : null,
+        c.ports.length ? h('span', null, 'Ports publiés ', h('b', {notr: true, text: c.ports.join(', ')})) : null,
+        (c.internal || []).length ? h('span', {title: tr('Joignables par le proxy et les autres conteneurs du même réseau, pas depuis l’extérieur')}, 'Ports internes ', h('b', {notr: true, text: c.internal.join(', ')})) : null,
+        Object.keys(c.ips || {}).length ? h('span', null, 'Réseaux ', h('b', {notr: true, text: Object.entries(c.ips).map(([n, ip]) => `${n} (${ip})`).join(', ')})) : null,
         a && a.linkDetail ? h('span', null, 'Lien ', h('b', {text: a.linkDetail})) : null,
         c.workdir && S.me.tools.files ? h('span', null, 'Compose ', h('button', {class: 'linkbtn', text: c.workdir, title: 'Ouvrir le dossier dans Fichiers', onclick: () => import('./files.js').then(({filesTool}) => { lstore.set('cwd0', c.workdir); show('@files', 'tabs'); if (filesTool.panes) filesTool.goto(c.workdir); })})) : null);
     }

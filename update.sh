@@ -109,6 +109,8 @@ rm -f "$TMP"
 SP="$(dirname "$DIR")/docker-socket-proxy"
 if [ -f "$SP/docker-compose.yml" ]; then
   grep -q "IMAGES:" "$SP/docker-compose.yml" || sed -i 's/^      CONTAINERS: 1$/      CONTAINERS: 1\n      IMAGES: 1/' "$SP/docker-compose.yml"
+  # lecture des réseaux et volumes (onglets Réseaux et Volumes de la Supervision) ; aucune écriture possible par ce chemin
+  grep -q "NETWORKS:" "$SP/docker-compose.yml" || sed -i 's/^      IMAGES: 1$/      IMAGES: 1\n      NETWORKS: 1\n      VOLUMES: 1/' "$SP/docker-compose.yml"
   (cd "$SP" && docker compose up -d >/dev/null 2>&1) && ok "docker_socket_proxy à jour (lecture seule)"
 else
   warn "docker_socket_proxy absent : lance sudo ./install.sh"

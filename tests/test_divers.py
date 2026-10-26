@@ -79,3 +79,33 @@ def test_aucune_donnee_personnelle():
         mots = set(re.findall(r"[a-z0-9_]{5,}", txt.lower())) | set(re.sub(r"\D", "", m) for m in re.findall(r"0[1-9](?:[ .]?\d\d){4}", txt))
         trouve = [m for m in mots if _empreinte(m) in INTERDITS]
         assert not trouve, f"donnée personnelle dans {nom}"
+
+
+def test_alertes_de_seuil_et_conteneur_arrete():
+    """Seuil dépassé pendant la durée voulue -> une alerte, puis plus rien pendant le délai de réalerte (comme Glances)."""
+    import asyncio
+    from app.alerts import Alerts, clean_rules
+    rules = clean_rules([{"kind": "metric", "metric": "cpu", "value": 90, "minutes": 5},
+                         {"kind": "down", "containers": ["jellyfin"], "minutes": 2}])
+    assert rules[0]["kind"] == "metric" and rules[1]["kind"] == "down"
+    fired = []
+
+    class Mon:
+        def summary(self, only=None):
+            return [{"name": "jellyfin", "running": False}, {"name": "kuma", "running": True}]
+
+    class Host:
+        latest = {"cpu": 97.0, "memUsed": 1, "memTotal": 2, "disks": [], "temp": 50}
+
+    a = Alerts(None, Mon(), None)
+    a.hosts = lambda: {"": Host()}
+
+    async def fire(r, target, line):
+        fired.append((r["kind"], target, line))
+    a.fire = fire
+    asyncio.run(a.check_states(rules, 1000.0))
+    assert fired == []                                         # pas encore assez longtemps
+    asyncio.run(a.check_states(rules, 1000.0 + 301))
+    assert [f[0] for f in fired] == ["metric", "down"] and "97" in fired[0][2] and fired[1][1] == "jellyfin"
+    asyncio.run(a.check_states(rules, 1000.0 + 400))
+    assert len(fired) == 2                                     # délai de réalerte respecté

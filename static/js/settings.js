@@ -727,28 +727,58 @@ const BUILD = {
     const names = [...new Set([...(S.containers || []).map((x) => x.name), ...S.apps.map((a) => a.container).filter(Boolean)])].sort();
     const list = h('div');
     const save = async () => { try { rules = (await api('POST', '/api/admin/alerts', {rules})).rules; paint(); toast('Alertes enregistrées'); } catch (e) { toastErr(e); paint(); throw e; } };
+    const MET = {cpu: ['Processeur', '%'], mem: ['Mémoire', '%'], disk: ['Disque le plus plein', '%'], temp: ['Température', '°C']};
+    const machines = [['', tr('Ce serveur')], ...((S.servers || []).map((x) => [x.id, x.name]))];
+    /** Ce que surveille une règle, en une ligne (colonne « Repère »). */
+    const what = (r) => r.kind === 'metric' ? `${tr(MET[r.metric][0])} ≥ ${r.value} ${MET[r.metric][1]} · ${r.minutes} min · ${(machines.find((m) => m[0] === r.server) || ['', r.server])[1]}`
+      : r.kind === 'down' ? tr('Arrêté depuis {0} min').replace('{0}', r.minutes) : (r.regex ? '/' + r.pattern + '/' : r.pattern);
     const edit = (r) => {
-      const isNew = !r; r = r ? {...r} : {name: '', pattern: '', regex: false, containers: [], cooldown: 10, notify: true, webhook: '', enabled: true};
+      const isNew = !r; r = r ? {...r} : {kind: 'log', name: '', pattern: '', regex: false, containers: [], cooldown: 10, notify: true, webhook: '', enabled: true, metric: 'cpu', value: 90, minutes: 5, server: ''};
+      r.kind = r.kind || 'log';
       const name = h('input', {class: 'inp', value: r.name, placeholder: 'Ex. : Erreurs Nextcloud'});
       const pat = h('input', {class: 'inp mono', value: r.pattern, placeholder: 'error  ·  ou une expression régulière'});
       const rx = h('input', {type: 'checkbox', checked: r.regex});
       const cd = h('input', {class: 'inp w90', type: 'number', min: 1, max: 1440, value: r.cooldown});
       const notify = h('input', {type: 'checkbox', checked: r.notify});
       const hook = h('input', {class: 'inp mono', value: r.webhook, placeholder: 'https://ntfy.sh/mon-sujet  ·  Gotify, Matrix, Discord, Slack…'});
-      const ct = h('div', {class: 'checks'}, ...names.map((n) => h('label', {class: 'check'}, h('input', {type: 'checkbox', value: n, checked: r.containers.includes(n)}), h('span', {notr: true, text: n}))));
+      const ct = h('div', {class: 'checks'}, ...names.map((n) => h('label', {class: 'check'}, h('input', {type: 'checkbox', value: n, checked: (r.containers || []).includes(n)}), h('span', {notr: true, text: n}))));
+      // seuil d'une machine (comme Glances) et conteneur arrêté
+      const met = h('select', {class: 'inp'}, ...Object.entries(MET).map(([k, [t]]) => h('option', {value: k, selected: r.metric === k, text: tr(t)})));
+      const val = h('input', {class: 'inp w90', type: 'number', min: 1, max: 150, value: r.value || 90});
+      // une durée par type (un même champ ne peut pas être affiché à deux endroits)
+      const mins = h('input', {class: 'inp w90', type: 'number', min: 1, max: 1440, value: r.minutes || 5});
+      const minsD = h('input', {class: 'inp w90', type: 'number', min: 1, max: 1440, value: r.minutes || 5});
+      const srv = h('select', {class: 'inp'}, ...machines.map(([id, n]) => h('option', {value: id, notr: true, selected: r.server === id, text: n})));
+      const unit = h('span', {class: 'muted'}); const paintUnit = () => { unit.textContent = MET[met.value][1]; }; met.onchange = paintUnit; paintUnit();
+      const parts = {
+        log: [h('label', {class: 'fld'}, h('span', {text: 'Texte à repérer dans les journaux'}), pat),
+          h('label', {class: 'check'}, rx, h('span', {text: 'Expression régulière (sinon : texte simple, sans tenir compte des majuscules)'})),
+          fold('Conteneurs surveillés (aucun coché = tous)', (r.containers || []).length > 0, ct)],
+        metric: [h('label', {class: 'fld'}, h('span', {text: 'Machine'}), srv), h('label', {class: 'fld'}, h('span', {text: 'Mesure'}), met),
+          h('label', {class: 'fld'}, h('span', {text: 'Seuil (alerte à partir de)'}), h('div', {class: 'row'}, val, unit)),
+          h('label', {class: 'fld'}, h('span', {text: 'Pendant au moins (minutes)'}), mins)],
+        down: [h('p', {class: 'hint', text: 'Alerte quand un des conteneurs cochés reste arrêté plus longtemps que la durée choisie.'}), ct,
+          h('label', {class: 'fld'}, h('span', {text: 'Arrêté depuis au moins (minutes)'}), minsD)]};
+      const zone = h('div', {class: 'stack'});
+      const showKind = (k) => {
+        r.kind = k;
+        parts.log[2] = fold('Conteneurs surveillés (aucun coché = tous)', [...ct.querySelectorAll('input:checked')].length > 0, ct);   // replace la liste partagée
+        zone.replaceChildren(...parts[k]);
+      };
+      showKind(r.kind);
       return modal({title: isNew ? 'Nouvelle alerte' : 'Modifier l’alerte', wide: true, body: [
         h('label', {class: 'fld'}, h('span', {text: 'Nom'}), name),
-        h('label', {class: 'fld'}, h('span', {text: 'Texte à repérer dans les journaux'}), pat),
-        h('label', {class: 'check'}, rx, h('span', {text: 'Expression régulière (sinon : texte simple, sans tenir compte des majuscules)'})),
-        fold('Conteneurs surveillés (aucun coché = tous)', r.containers.length > 0, ct),
+        h('div', {class: 'fld'}, h('span', {text: 'Type'}), seg([['log', 'Texte dans les journaux'], ['metric', 'Seuil d’une machine'], ['down', 'Conteneur arrêté']], r.kind, showKind)),
+        zone,
         h('label', {class: 'fld'}, h('span', {text: 'Ne pas réalerter avant (minutes)'}), cd),
         h('label', {class: 'check'}, notify, h('span', {text: 'Notification dans Centrol (administrateurs connectés)'})),
         h('label', {class: 'fld'}, h('span', {text: 'Webhook (facultatif)'}), h('div', {class: 'row'}, hook,
-          h('button', {class: 'btn sm', onclick: async () => { try { await api('POST', '/api/admin/alerts/test', {webhook: hook.value.trim()}); toast('Message de test envoyé'); } catch (e) { toastErr(e); } }}, 'Tester')))],
+          h('button', {class: 'btn sm', type: 'button', onclick: async () => { try { await api('POST', '/api/admin/alerts/test', {webhook: hook.value.trim()}); toast('Message de test envoyé'); } catch (e) { toastErr(e); } }}, 'Tester')))],
       onOk: async () => {
         Object.assign(r, {name: name.value.trim(), pattern: pat.value.trim(), regex: rx.checked, cooldown: +cd.value || 10, notify: notify.checked, webhook: hook.value.trim(),
-          containers: [...ct.querySelectorAll('input:checked')].map((i) => i.value)});
-        if (!r.pattern) throw new Error('Indique le texte à repérer');
+          containers: [...ct.querySelectorAll('input:checked')].map((i) => i.value), metric: met.value, value: +val.value, minutes: +(r.kind === 'down' ? minsD : mins).value || 5, server: srv.value});
+        if (r.kind === 'log' && !r.pattern) throw new Error('Indique le texte à repérer');
+        if (r.kind === 'down' && !r.containers.length) throw new Error('Coche au moins un conteneur');
         if (isNew) rules.push(r); else rules = rules.map((x) => (x.id === r.id ? r : x));
         await save();
       }});
@@ -756,8 +786,8 @@ const BUILD = {
     const paint = () => list.replaceChildren(rules.length ? h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'},
       h('thead', null, h('tr', null, ...['Alerte', 'Repère', 'Conteneurs', 'Envoi', ''].map((t) => h('th', {text: t})))),
       h('tbody', null, rules.map((r) => h('tr', {class: r.enabled ? '' : 'dim'},
-        h('td', null, h('b', {notr: true, text: r.name})), h('td', {class: 'mono', notr: true, text: (r.regex ? '/' + r.pattern + '/' : r.pattern)}),
-        h('td', {notr: !!r.containers.length, text: r.containers.length ? r.containers.join(', ') : 'Tous'}),
+        h('td', null, h('b', {notr: true, text: r.name})), h('td', {class: r.kind === 'log' || !r.kind ? 'mono' : '', notr: true, text: what(r)}),
+        h('td', {notr: !!r.containers.length, text: r.kind === 'metric' ? '—' : r.containers.length ? r.containers.join(', ') : 'Tous'}),
         h('td', {text: [r.notify ? 'Centrol' : null, r.webhook ? 'Webhook' : null].filter(Boolean).join(' + ') || '—'}),
         h('td', {class: 'acts'}, sw(r.enabled, (v) => { r.enabled = v; return save().catch((e) => { r.enabled = !v; throw e; }); }, 'Activée'),
           h('button', {class: 'ibtn', title: 'Modifier', html: ic('edit', 15), onclick: () => edit(r)}),
@@ -767,7 +797,7 @@ const BUILD = {
     const recent = d.recent.length ? h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'}, h('tbody', null, d.recent.slice(0, 30).map((e) => h('tr', null,
       h('td', {class: 'mono', notr: true, text: new Date(e.t * 1000).toLocaleString()}), h('td', {notr: true, text: e.rule}), h('td', {class: 'mono', notr: true, text: e.container}),
       h('td', {class: 'mono small', notr: true, text: e.line})))))) : h('p', {class: 'muted', text: 'Aucune alerte déclenchée depuis le démarrage de Centrol.'});
-    c.append(section('Alertes des journaux', 'Centrol lit les journaux des conteneurs toutes les 20 secondes. Quand une ligne contient le texte choisi, il prévient les administrateurs dans Centrol et/ou envoie un message à un webhook (ntfy, Gotify, Matrix, Discord, Slack…).',
+    c.append(section('Alertes', 'Trois sortes d’alertes, vérifiées toutes les 20 secondes : un texte dans les journaux d’un conteneur, un seuil dépassé sur une machine (processeur, mémoire, disque, température), ou un conteneur qui reste arrêté. Centrol prévient les administrateurs et/ou envoie un message à un webhook (ntfy, Gotify, Matrix, Discord, Slack…).',
       h('div', {class: 'actions'}, h('button', {class: 'btn primary', html: ic('plus', 15) + '<span>Nouvelle alerte</span>', onclick: () => edit(null)})), list),
       section('Dernières alertes', '', recent));
   },

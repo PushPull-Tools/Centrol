@@ -110,6 +110,8 @@ services:
     environment:
       CONTAINERS: 1
       IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
       POST: 0
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -122,6 +124,8 @@ networks:
 YML
 fi
 grep -q "IMAGES:" "$SP/docker-compose.yml" || sed -i 's/^      CONTAINERS: 1$/      CONTAINERS: 1\n      IMAGES: 1/' "$SP/docker-compose.yml"
+  # lecture des réseaux et volumes (onglets Réseaux et Volumes de la Supervision) ; aucune écriture possible par ce chemin
+  grep -q "NETWORKS:" "$SP/docker-compose.yml" || sed -i 's/^      IMAGES: 1$/      IMAGES: 1\n      NETWORKS: 1\n      VOLUMES: 1/' "$SP/docker-compose.yml"
 (cd "$SP" && docker compose up -d >/dev/null 2>&1) || die "Échec du démarrage de docker_socket_proxy"
 ok "docker_socket_proxy actif ($SP)"
 NPM_DATA_DIR=""

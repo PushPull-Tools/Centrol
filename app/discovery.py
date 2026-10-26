@@ -93,6 +93,9 @@ def container_info(c: dict) -> dict:
         "ips": {n: v.get("IPAddress") for n, v in nets.items() if v.get("IPAddress")},
         "ports": sorted({(p["PublicPort"], p["PrivatePort"]) for p in c.get("Ports") or []
                          if p.get("PublicPort") and p.get("Type") == "tcp"}),
+        # ports internes du conteneur (exposés, publiés ou non) et volumes nommés qu'il utilise
+        "exposed": sorted({(p.get("PrivatePort"), p.get("Type", "tcp")) for p in c.get("Ports") or [] if p.get("PrivatePort")}),
+        "mounts": [m.get("Name") for m in c.get("Mounts") or [] if m.get("Type") == "volume" and m.get("Name")],
         "host": (c.get("HostConfig") or {}).get("NetworkMode") == "host",
         "service": labels.get("com.docker.compose.service", ""),
         "labels": labels,

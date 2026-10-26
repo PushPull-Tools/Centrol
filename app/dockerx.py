@@ -163,6 +163,9 @@ class DockerMon:
                 "name": c["name"], "image": c["image"], "state": c["state"], "status": c["status"],
                 "running": c["running"], "health": health(c),
                 "ports": [f"{pub}→{priv}" for pub, priv in c["ports"]],
+                # ports internes non publiés (joignables par le proxy ou les autres conteneurs) et adresses IP par réseau
+                "internal": [f"{priv}/{proto}" for priv, proto in c.get("exposed", []) if priv not in {x for _, x in c["ports"]}],
+                "ips": c.get("ips", {}),
                 "project": lb.get("com.docker.compose.project"),
                 "service": lb.get("com.docker.compose.service"),
                 "workdir": lb.get("com.docker.compose.project.working_dir"),
@@ -229,8 +232,21 @@ class DockerMon:
         q = shlex.quote
         if action in ("stop",) and name in PROTECTED_STOP:
             raise ValueError("Ce conteneur fait tourner Centrol : il ne peut pas être arrêté d'ici")
-        if action in ("start", "stop", "restart"):
+        if action in ("stop", "kill", "pause") and name in PROTECTED_STOP:
+            raise ValueError("Ce conteneur fait tourner Centrol : il ne peut pas être arrêté d'ici")
+        if action in ("start", "stop", "restart", "pause", "unpause", "kill"):
             cmd = f"docker {action} -- {q(name)}"
+        elif action == "recreate":
+            # recréer à partir du docker-compose (prend en compte les modifications du fichier), sans retélécharger l'image
+            lb = c["labels"]
+            wd, svc = lb.get("com.docker.compose.project.working_dir"), lb.get("com.docker.compose.service")
+            if not (wd and svc):
+                raise ValueError("Recréation possible uniquement pour un conteneur créé avec docker compose")
+            files = [f for f in (lb.get("com.docker.compose.project.config_files") or "").split(",") if f]
+            fa = " ".join(f"-f {q(f)}" for f in files)
+            proj = lb.get("com.docker.compose.project")
+            pa = f"-p {q(proj)}" if proj else ""
+            cmd = f"cd {q(wd)} && docker compose {pa} {fa} up -d --force-recreate {q(svc)}"
         elif action == "update":
             lb = c["labels"]
             wd, svc = lb.get("com.docker.compose.project.working_dir"), lb.get("com.docker.compose.service")

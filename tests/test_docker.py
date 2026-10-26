@@ -56,6 +56,8 @@ def env(monkeypatch, admin):
     fake = FakeSSH()
     monkeypatch.setattr(M.ops, "ssh", fake)
     monkeypatch.setattr(M, "ssh", fake)
+    monkeypatch.setattr(M.res, "ssh", fake)
+    monkeypatch.setattr(M.mon, "ssh", fake)
     monkeypatch.setattr(M.disc, "cinfo", [container_info(c) for c in RAW])
     old = M.disc.http
     M.disc.http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=INSPECT)))
@@ -296,3 +298,34 @@ def test_menage_coche_par_element_et_reverifie(env):
     assert not any("kuma_data" in x for x in fake.cmds)                      # encore utilisé : laissé en place
     assert any(not s["ok"] and "kuma_data" in s["label"] for s in r["steps"])
     assert not any("volume prune" in x or "image prune" in x for x in fake.cmds)   # jamais de suppression en bloc ici
+
+
+def test_images_reseaux_volumes(env, monkeypatch):
+    """Comme Portainer : listes avec « utilisé par », et gestion protégée (noms vérifiés, réseaux de Centrol intouchables)."""
+    fake, c = env
+    data = {"/images/json": [{"Id": "sha256:aaa", "RepoTags": ["louislam/uptime-kuma:1"], "Size": 4e8, "Created": 1}],
+            "/networks": [{"Name": "npm_network", "Id": "n", "Driver": "bridge", "IPAM": {"Config": [{"Subnet": "172.20.0.0/16"}]}},
+                          {"Name": "bridge", "Id": "b", "Driver": "bridge", "IPAM": {"Config": []}}],
+            "/volumes": {"Volumes": [{"Name": "kuma_data", "Driver": "local", "Labels": {"com.docker.compose.project": "kuma"}}]}}
+    M.disc.http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=data[r.url.path])))
+    assert c.get("/api/docker/res/images").json()["images"][0]["app"] == "Uptime Kuma"
+    nets = {n["name"]: n for n in c.get("/api/docker/res/networks").json()["networks"]}
+    assert nets["bridge"]["builtin"] and nets["npm_network"]["subnet"] == "172.20.0.0/16"
+    assert c.get("/api/docker/res/volumes").json()["volumes"][0]["project"] == "kuma"
+    r = c.post("/api/docker/res/volumes/remove", json={"name": "kuma_data"}, headers=HDR)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "elevate"       # mot de passe sudo d'abord
+    root(c)
+    assert c.post("/api/docker/res/volumes/remove", json={"name": "kuma_data; rm -rf /"}, headers=HDR).status_code == 400
+    assert c.post("/api/docker/res/networks/remove", json={"name": "bridge"}, headers=HDR).status_code == 400
+    assert c.post("/api/docker/res/images/pull", json={"ref": "jellyfin/jellyfin:latest"}, headers=HDR).status_code == 200
+    assert fake.cmds[-1] == "docker pull -- jellyfin/jellyfin:latest"
+    assert c.post("/api/docker/res/containers/rename", json={"name": "kuma", "to": "uptime"}, headers=HDR).status_code == 200
+    assert fake.cmds[-1] == "docker rename -- kuma uptime"
+
+
+def test_pause_et_arret_force_proteges(env):
+    fake, c = env
+    root(c)
+    assert c.post("/api/docker/action", json={"name": "kuma", "action": "pause"}, headers=HDR).status_code == 200
+    assert fake.cmds[-1] == "docker pause -- kuma"
+    assert c.post("/api/docker/action", json={"name": "centrol", "action": "kill"}, headers=HDR).status_code == 400

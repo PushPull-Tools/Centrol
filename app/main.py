@@ -31,6 +31,7 @@ from .terminals import Terminals
 from .updates import Updates
 from .activity import Activity, short_ua
 from .alerts import Alerts, clean_rules, send_webhook
+from .dockerres import DockerResources, ResError
 from .dockerops import DockerError, DockerOps
 from .remote import Remote, clean_proxy, clean_servers, public_servers
 
@@ -110,7 +111,11 @@ terms = Terminals(ssh, store)
 updates = Updates(store, hub)
 alerts = Alerts(store, mon, hub)
 remote = Remote(store, mon, hub, alerts)
+# alertes de seuil : ce serveur et les autres machines (agents)
+alerts.hosts = lambda: {"": host, **remote.hosts}
+alerts.names = lambda sid: next((x["name"] for x in store.settings.get("servers", []) if x.get("id") == sid), sid) if sid else "Ce serveur"
 ops = DockerOps(disc, ssh, terms, store)
+res = DockerResources(disc, ssh)        # images, réseaux, volumes
 activity = Activity()
 
 
@@ -1447,10 +1452,31 @@ async def _ops(s, coro):
     except PermissionError as ex:
         auth.drop_elev(s["key"])
         err(403, str(ex), "elevate")
-    except (DockerError, ValueError) as ex:
+    except (DockerError, ResError, ValueError) as ex:
         err(400, str(ex))
     except SSHError as ex:
         fail(ex)
+
+
+# ---------------------------------------------------------------------------- images, réseaux, volumes (comme Portainer)
+@app.get("/api/docker/res/{kind}")
+async def docker_res_list(kind: str, s=Depends(require)):
+    """Liste en lecture seule : administrateurs uniquement, sans mot de passe sudo."""
+    need_admin(s)
+    if kind not in ("images", "networks", "volumes"):
+        err(404, "Inconnu")
+    try:
+        return {kind: await getattr(res, kind)()}
+    except ResError as ex:
+        err(400, str(ex))
+
+
+@app.post("/api/docker/res/{kind}/{op}")
+async def docker_res_op(kind: str, op: str, req: Request, s=Depends(require)):
+    """Création, téléchargement, suppression, branchement : mode administrateur (mot de passe sudo)."""
+    e = _root(s)
+    body = await req.json()
+    return await _ops(s, res.run(kind, op, body if isinstance(body, dict) else {}, e["pw"], s["eff"]["linux"]))
 
 
 @app.get("/api/docker/{name}/inspect")
