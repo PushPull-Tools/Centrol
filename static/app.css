@@ -1221,3 +1221,6 @@ body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
 .tablewrap.res td .pill { margin: 1px 4px 1px 0; }
 .tablewrap.res td.acts { white-space: nowrap; text-align: right; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
+/* onglet en veille (vidé de la mémoire, rechargé au clic) */
+.tab.asleep { opacity: .55; }
+.tab.asleep .tn { font-style: italic; }

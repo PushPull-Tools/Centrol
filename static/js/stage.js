@@ -229,7 +229,11 @@ export function setMode(mode, key) {
       L.classList.remove('noanim');
     }
     const keys = S.split ? [S.split.a, S.split.b] : [S.active];
-    keys.forEach((k) => { ensureLoaded(k); const w = S.wins.get(k); if (w) w.opened = true; });
+    keys.forEach((k) => {
+      ensureLoaded(k); const w = S.wins.get(k);
+      if (w) { w.opened = true; w.asleep = false; seenAt.set(k, Date.now()); }
+      const tab = document.querySelector(`.tab[data-key="${CSS.escape(k)}"]`); if (tab) tab.classList.remove('asleep');
+    });
     // zoom avant depuis la vue d'ensemble : seule la fenêtre ouverte s'agrandit ; les autres aperçus
     // disparaissent sur place, sans bouger ni se déformer (la vue d'ensemble est une page à part entière)
     const still = was === 'overview' ? [...S.wins].filter(([k]) => !keys.includes(k)).map(([, x]) => x) : [];
@@ -899,6 +903,31 @@ function trimPreviews(H) {
     for (const [, k] of cand) { if (loaded <= max) break; unloadWin(k); loaded--; }
   }, 800);
 }
+// ============================================================ veille des onglets inactifs (comme Chrome et Brave)
+/** Un onglet d'appli non regardé depuis « tabSleep » minutes est vidé de la mémoire de l'appareil,
+ *  puis rechargé au prochain clic. Jamais : les outils (terminal, fichiers… gardent leur état), ce qui est à l'écran. */
+const seenAt = new Map();                       // clé -> dernière fois où l'onglet était affiché
+function markSeen() {
+  const now = Date.now();
+  if (S.mode !== 'overview') for (const k of S.split ? [S.split.a, S.split.b] : [S.active]) if (k) seenAt.set(k, now);
+}
+export function sleepTabs() {
+  markSeen();
+  const mins = prefs().tabSleep ?? 30;
+  if (!mins) return;
+  const limit = Date.now() - mins * 60000;
+  for (const [k, w] of S.wins) {
+    if (!w.opened || !w.loaded || BUILTIN[k] || w.el.classList.contains('show')) continue;   // jamais ouvert, outil, ou à l'écran
+    if ((seenAt.get(k) || Date.now()) > limit) continue;
+    unloadWin(k);
+    w.opened = false;                            // rechargé tout seul au prochain affichage
+    w.asleep = true;
+    const tab = document.querySelector(`.tab[data-key="${CSS.escape(k)}"]`);
+    if (tab) tab.classList.add('asleep');
+  }
+}
+setInterval(sleepTabs, 60000);
+
 function unloadWin(k) {
   const w = S.wins.get(k);
   if (!w || !w.loaded) return;

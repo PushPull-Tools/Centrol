@@ -5,6 +5,7 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). Tant qu
 ## [1.0.0] — V1 — 2026-10
 
 ### Ajouté
+- **Onglets en veille :** un onglet d'appli non regardé depuis 30 min (réglable : Paramètres › Vue d'ensemble › Onglets) est vidé de la mémoire, grisé, puis rechargé au clic, comme dans Chrome ou Brave.
 - **Comme Portainer :** onglets Images (télécharger, supprimer, « utilisée par »), Réseaux (créer, supprimer, brancher / débrancher un conteneur) et Volumes (créer, supprimer avec double validation) ; conteneurs : pause, reprise, arrêt forcé, renommer, recréer depuis le docker-compose ; ports publiés et internes, adresses IP par réseau, port visible dans la liste.
 - **Comme Glances :** alertes de seuil (processeur, mémoire, disque, température pendant N minutes, sur chaque machine) et alerte « conteneur arrêté depuis N minutes », vers Centrol et les webhooks.
 - **Ménage Docker détaillé :** chaque conteneur arrêté, image et volume inutilisé est listé avec l'appli à laquelle il appartenait, se coche un par un, puis une 2e fenêtre récapitule et explique ce qui sera supprimé (case de plus pour les volumes) ; tout est revérifié juste avant.

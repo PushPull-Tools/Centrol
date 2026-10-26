@@ -57,7 +57,7 @@ DEFAULT_PREFS = {
     "revealHover": False, "revealDelay": 500, "barCompact": False, "mBar": "same", "barFav": "follow", "barFavV": 1, "barAlign": "start", "anim": "auto",
     "view": "grid", "gridCols": 0, "favView": None, "favGridCols": None, "favThumbs": None, "previewMax": -1, "ovCats": True,
     "thumbs": "hover", "thumbsV": 3, "peekDelay": 0, "thumbRefresh": 0, "notify": True,
-    "termKeep": 60, "termFont": 13, "termScrollback": 10000,
+    "termKeep": 60, "tabSleep": 30, "termFont": 13, "termScrollback": 10000,
     "elevKeep": 10,                        # mode administrateur : minutes après la dernière action ; 0 = jusqu'à la déconnexion ; -1 = jamais redemandé
     "confirmClose": True, "calc": False,
 }
@@ -88,6 +88,7 @@ PREF_RULES = {
     "thumbs": ("hover", "live", "icon"),
     "notify": (True, False),
     "termKeep": (0, 15, 60, 480, 1440, -1),
+    "tabSleep": (0, 10, 30, 60, 240),          # minutes avant de libérer un onglet inactif ; 0 = jamais
     "elevKeep": (5, 10, 30, 60, 240, 0, -1),
     "termFont": (11, 12, 13, 14, 15, 16, 18),
     "termScrollback": (1000, 5000, 10000, 50000),

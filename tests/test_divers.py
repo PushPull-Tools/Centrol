@@ -109,3 +109,10 @@ def test_alertes_de_seuil_et_conteneur_arrete():
     assert [f[0] for f in fired] == ["metric", "down"] and "97" in fired[0][2] and fired[1][1] == "jellyfin"
     asyncio.run(a.check_states(rules, 1000.0 + 400))
     assert len(fired) == 2                                     # délai de réalerte respecté
+
+
+def test_veille_des_onglets_reglable():
+    """Le réglage « libérer les onglets inactifs » existe, vaut 30 min par défaut et refuse les valeurs hors liste."""
+    from app import store as S
+    assert S.DEFAULT_PREFS["tabSleep"] == 30
+    assert 0 in S.PREF_RULES["tabSleep"] and 240 in S.PREF_RULES["tabSleep"]

@@ -230,7 +230,7 @@ const catOf = (key) => catView().cats.find((c) => c.apps.some((x) => x.key === k
 function tabEl(a) {
   const blocked = embedOf(a) === 'blocked';
   const display = S.me && S.me.display;
-  const t = h('button', {class: 'tab', draggable: display ? 'false' : 'true', dataset: {key: a.key},
+  const t = h('button', {class: 'tab' + ((S.wins.get(a.key) || {}).asleep ? ' asleep' : ''), draggable: display ? 'false' : 'true', dataset: {key: a.key},
     title: `${nameOf(a)}${seeUrl(a) ? ' — ' + a.domain : ''}${blocked ? ' (s’ouvre à l’extérieur)' : ''}\nClic droit : options${seeUrl(a) ? ' · clic molette : nouvel onglet' : ''} · glisser : ranger ou afficher côte à côte`,
     onclick: () => show(a.key, 'tabs'),
     oncontextmenu: (e) => { e.preventDefault(); appMenu(a, e.clientX, e.clientY); },
