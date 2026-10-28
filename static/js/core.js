@@ -122,6 +122,7 @@ export const P = {
   // machines du réseau : un type deviné = une icône
   network: '<rect x="9" y="2.5" width="6" height="5" rx="1"/><rect x="2.5" y="16.5" width="6" height="5" rx="1"/><rect x="15.5" y="16.5" width="6" height="5" rx="1"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>',
   router: '<rect x="2.5" y="13" width="19" height="7" rx="2"/><line x1="6.5" y1="16.5" x2="6.51" y2="16.5"/><line x1="10" y1="16.5" x2="10.01" y2="16.5"/><path d="M15 13V8M8.5 6.5a5 5 0 0 1 7 0M6 4a8.5 8.5 0 0 1 12 0"/>',
+  nas: '<rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="9" cy="17" r=".9"/><circle cx="12.5" cy="17" r=".9"/>',
   switch: '<rect x="2" y="7" width="20" height="10" rx="2"/><path d="M5.5 11h2v2.5h-2zM9.5 11h2v2.5h-2zM13.5 11h2v2.5h-2zM17.5 11h1"/>',
   printer: '<path d="M6 9V3h12v6"/><rect x="2.5" y="9" width="19" height="8" rx="2"/><rect x="6" y="14" width="12" height="7"/>',
   phone: '<rect x="6.5" y="2" width="11" height="20" rx="2.5"/><line x1="11" y1="18.5" x2="13" y2="18.5"/>',

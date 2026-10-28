@@ -8,7 +8,7 @@ import {chartBox, meter} from './charts.js';
 const TYPES = {
   router: ['router', 'Routeur / box'], switch: ['switch', 'Switch'], ap: ['router', 'Point d’accès / répéteur'], server: ['server', 'Serveur'], computer: ['laptop', 'Ordinateur'],
   phone: ['phone', 'Téléphone / tablette'], tv: ['tv', 'Télévision / Chromecast'], speaker: ['speaker', 'Enceinte'], printer: ['printer', 'Imprimante'],
-  nas: ['hdd', 'NAS'], camera: ['camera', 'Caméra'], console: ['gamepad', 'Console de jeu'], pi: ['chip', 'Raspberry Pi'],
+  nas: ['nas', 'NAS'], camera: ['camera', 'Caméra'], console: ['gamepad', 'Console de jeu'], pi: ['chip', 'Raspberry Pi'],
   iot: ['chip', 'Objet connecté'], unknown: ['help', 'Inconnu'],
 };
 // groupes de la liste, dans cet ordre : les équipements réseau ensemble, puis un groupe par type de matériel
@@ -96,8 +96,9 @@ export const netTool = {
     this.tbody.replaceChildren(...(rows.length ? groups.flatMap(([id, title, icon, list]) => {
       const shut = (id === 'expired' ? !folded.includes('expired-open') : folded.includes(id)) && !q && this.filter !== 'exp';
       const head = h('tr', {class: 'net-group', tabindex: 0, onclick: () => { const k = id === 'expired' ? 'expired-open' : id, add = id === 'expired' ? shut : !shut; lstore.set('netFolded', add ? [...folded, k] : folded.filter((x) => x !== k)); this.paintRows(); }},
-        h('td', {colspan: 7}, h('span', {class: 'chev' + (shut ? '' : ' open'), html: ic('chevR', 12)}), h('span', {html: ic(icon, 15)}), h('b', {notr: id === 'expired', text: title}),
-          h('span', {class: 'muted small', notr: true, text: `${list.filter((m) => m.online).length} / ${list.length}`})));
+        // en-tête de groupe : flèche, icône, titre et compteur sur une seule ligne
+        h('td', {colspan: 7}, h('div', {class: 'net-gh'}, h('span', {class: 'chev' + (shut ? '' : ' open'), html: ic('chevR', 12)}), h('span', {class: 'gi', html: ic(icon, 16)}),
+          h('b', {notr: id === 'expired', text: title}), h('span', {class: 'muted small', notr: true, text: `${list.filter((m) => m.online).length} / ${list.length}`}))));
       return [head, ...(shut ? [] : list.map(rowEl))];
     }) : [h('tr', null, h('td', {colspan: 7, class: 'hint', text: d.machines.length ? 'Aucune machine ne correspond.' : d.error ? tr('Lecture du réseau impossible : ') + d.error : 'Premier passage en cours… (une minute environ)'}))]));
   },

@@ -1239,7 +1239,8 @@ body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
 .net-tbl td small, .net-card td small { display: block; }
 .net-tbl td .pill { margin: 3px 4px 0 0; }
 .tbl tr.off td { opacity: .6; }
-.net-ic { width: 26px; color: var(--muted); }
+.net-ic { width: 26px; color: var(--muted); text-align: center; }
+.net-ic svg { display: block; margin: 0 auto; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); margin-right: 6px; vertical-align: middle; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); } .dot.ko { background: var(--danger); }
 .net-card h3 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
@@ -1266,7 +1267,8 @@ body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
 .net-form3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 12px; }
 .tbl td.warn { color: var(--warn); }
 @media (max-width: 640px) { .net-body { padding: 10px 12px 24px; } .net-off, .net-state { margin-left: 0; } .net-meter { grid-template-columns: 1fr; gap: 2px; } }
-.net-group td { background: var(--panel3); cursor: pointer; padding: 6px 10px; }
-.net-group td > * { vertical-align: middle; margin-right: 8px; }
-.net-group .chev { display: inline-block; transition: transform .15s; } .net-group .chev.open { transform: rotate(90deg); }
+.net-group td { background: var(--panel3); cursor: pointer; padding: 7px 12px; }
+.net-gh { display: flex; align-items: center; gap: 8px; line-height: 1; }
+.net-gh .gi, .net-gh .chev { display: inline-flex; color: var(--muted); }
+.net-group .chev { transition: transform .15s; } .net-group .chev.open { transform: rotate(90deg); }
 .kv .inp.sm { padding: 2px 6px; height: auto; font-size: 12.5px; }
