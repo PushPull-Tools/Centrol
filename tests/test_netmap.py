@@ -128,7 +128,9 @@ class FakeSSH:
             return 0, (b"2: eth0    inet 10.9.0.2/24 brd 10.9.0.255 scope global eth0\n3: docker0    inet 172.17.0.1/16 scope global docker0\n@@"
                        b"2: eth0: <UP> mtu 1500 link/ether 02:00:00:00:00:02 brd ff:ff:ff:ff:ff:ff\n@@default via 10.9.0.1 dev eth0\n@@"
                        b"10.9.0.1 dev eth0 lladdr 00:11:32:aa:bb:01 REACHABLE\n10.9.0.50 dev eth0 lladdr 3a:11:22:33:44:55 STALE\n"
-                       b"172.17.0.5 dev docker0 lladdr 02:42:ac:11:00:05 REACHABLE\n"), b""
+                       b"172.17.0.5 dev docker0 lladdr 02:42:ac:11:00:05 REACHABLE\n@@"
+                       b"2001:db8::50 dev eth0 lladdr 3a:11:22:33:44:55 STALE\nfe80::1 dev eth0 lladdr 00:11:32:aa:bb:01 router REACHABLE\n@@"
+                       b"2: eth0    inet6 2001:db8::2/64 scope global dynamic\n@@serveur-test\n"), b""
         if cmd.startswith("xargs"):
             return 0, b"10.9.0.1 0.4\n@@10.9.0.1 dev eth0 lladdr 00:11:32:aa:bb:01 REACHABLE\n", b""
         if cmd.startswith("python3"):
@@ -157,7 +159,8 @@ def test_decouverte_par_ip_neigh():
     assert gw["gateway"] and gw["online"] and gw["rtt"] == 0.4 and gw["vendor"] == "Synology Incorporated"
     phone = nm.m["3a:11:22:33:44:55"]
     assert phone["random"] and not phone.get("vendor") and N.guess_type(phone) == "phone"
-    assert nm.m["02:00:00:00:00:02"]["self"]
+    assert nm.m["02:00:00:00:00:02"]["self"] and nm.label("02:00:00:00:00:02") == "serveur-test"
+    assert phone["ip6"] == ["2001:db8::50"] and nm.m["02:00:00:00:00:02"]["ip6"] == ["2001:db8::2"] and not gw.get("ip6")   # pas de fe80
     # hors ligne seulement après plusieurs tours manqués, et la date reste celle de la dernière fois vue
     last = phone["last"]
     for _ in range(N.OFFLINE_AFTER):

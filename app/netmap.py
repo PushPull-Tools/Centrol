@@ -345,7 +345,8 @@ class NetMap:
     async def scan(self):
         now = time.time()
         # 1) interfaces, passerelle, voisins
-        raw = (await self._sh("ip -o -4 addr show scope global; echo @@; ip -o link show; echo @@; ip -4 route show default; echo @@; ip -4 neigh show")).split("@@")
+        raw = (await self._sh("ip -o -4 addr show scope global; echo @@; ip -o link show; echo @@; ip -4 route show default; echo @@; ip -4 neigh show; "
+                         "echo @@; ip -6 neigh show; echo @@; ip -o -6 addr show scope global; echo @@; hostname")).split("@@")
         if len(raw) < 4:
             raise RuntimeError("lecture du réseau de l'hôte incomplète")
         nets, mine = [], {}
@@ -405,6 +406,17 @@ class NetMap:
         for ip, mac in mine.items():
             if mac:
                 found[mac] = (ip, True, 0.0)
+        # IPv6 : adresses globales (et privées fdxx) vues dans la table des voisins et sur l'hôte, par adresse MAC
+        v6 = {}
+        for ln in (raw[4] if len(raw) > 4 else "").splitlines():
+            f = ln.split()
+            if len(f) >= 4 and "lladdr" in f and not f[0].lower().startswith("fe80") and not SKIP_DEV.match(f[2] if f[1] == "dev" else ""):
+                v6.setdefault(f[f.index("lladdr") + 1].lower(), set()).add(f[0])
+        for ln in (raw[5] if len(raw) > 5 else "").splitlines():
+            g = re.match(r"\d+:\s+(\S+)\s+inet6\s+([0-9a-f:]+)/", ln)
+            if g and not SKIP_DEV.match(g.group(1)) and macs.get(g.group(1)):
+                v6.setdefault(macs[g.group(1)], set()).add(g.group(2))
+        hostname = (raw[6] if len(raw) > 6 else "").strip()[:63]
         for mac, (ip, up, ms) in found.items():
             m = self.m.get(mac)
             if not m:
@@ -414,6 +426,12 @@ class NetMap:
                 m["ip"] = ip
                 self.dirty = True
             m["self"] = ip in mine
+            if v6.get(mac) and sorted(v6[mac])[:4] != m.get("ip6"):
+                m["ip6"] = sorted(v6[mac])[:4]
+                self.dirty = True
+            if m["self"] and hostname and (m.get("names") or {}).get("host") != hostname:
+                m.setdefault("names", {})["host"] = hostname      # nom de ce serveur
+                self.dirty = True
             m["gateway"] = ip in gw
             if up:
                 if not m.get("online"):
@@ -556,7 +574,7 @@ class NetMap:
     def label(self, mid) -> str:
         m = self.m.get(mid) or {}
         n = m.get("names") or {}
-        return m.get("label") or n.get("snmp") or n.get("mdns") or n.get("netbios") or n.get("dns") or m.get("ip") or mid
+        return m.get("label") or n.get("snmp") or n.get("host") or n.get("mdns") or n.get("netbios") or n.get("dns") or m.get("ip") or mid
 
     async def event(self, mid, kind, text):
         if self.alerts:
@@ -591,7 +609,7 @@ class NetMap:
 
     # ------------------------------------------------------------------ vues pour l'interface
     def row(self, m) -> dict:
-        r = {k: m.get(k) for k in ("id", "mac", "ip", "vendor", "first", "last", "online", "rtt", "ping", "random", "self", "gateway", "label")}
+        r = {k: m.get(k) for k in ("id", "mac", "ip", "vendor", "first", "last", "online", "rtt", "ping", "random", "self", "gateway", "label", "ip6")}
         r["names"] = m.get("names") or {}
         r["name"] = self.label(m["id"])
         m["agent"] = self.agent_of(m)

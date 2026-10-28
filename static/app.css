@@ -1272,3 +1272,4 @@ body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
 .net-gh .gi, .net-gh .chev { display: inline-flex; color: var(--muted); }
 .net-group .chev { transition: transform .15s; } .net-group .chev.open { transform: rotate(90deg); }
 .kv .inp.sm { padding: 2px 6px; height: auto; font-size: 12.5px; }
+.net-tbl td small.ip6 { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
