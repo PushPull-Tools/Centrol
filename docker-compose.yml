@@ -13,6 +13,8 @@ services:
     env_file: .env
     ports:
       - "${CENTROL_PORT:-8322}:8322"
+      # traps SNMP (option « Machines du réseau ») : le port 162 de l'hôte, reçu sur 1162 dans le conteneur
+      - "${SNMP_TRAP_PORT:-162}:1162/udp"
     # lecture de /etc/shadow de l'hôte (connexion avec les utilisateurs locaux du serveur)
     group_add:
       - "${SHADOW_GID:-42}"

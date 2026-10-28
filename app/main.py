@@ -34,6 +34,7 @@ from .alerts import Alerts, clean_rules, send_webhook
 from .dockerres import DockerResources, ResError
 from .dockerops import DockerError, DockerOps
 from .remote import Remote, clean_proxy, clean_servers, public_servers
+from .netmap import NetMap
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 # journaux utiles seulement : sans ça, chaque requête interne (statistiques Docker toutes les 5 s, SSH, accès HTTP)
@@ -114,6 +115,9 @@ remote = Remote(store, mon, hub, alerts)
 # alertes de seuil : ce serveur et les autres machines (agents)
 alerts.hosts = lambda: {"": host, **remote.hosts}
 alerts.names = lambda sid: next((x["name"] for x in store.settings.get("servers", []) if x.get("id") == sid), sid) if sid else "Ce serveur"
+# machines du réseau (option désactivée par défaut, administrateurs seulement)
+netmap = NetMap(store, ssh, host, remote, hub, alerts)
+alerts.net = netmap
 ops = DockerOps(disc, ssh, terms, store)
 res = DockerResources(disc, ssh)        # images, réseaux, volumes
 activity = Activity()
@@ -170,7 +174,7 @@ async def hours_guard():
 
 @asynccontextmanager
 async def lifespan(_app):
-    tasks = [asyncio.create_task(x) for x in (disc.run(), mon.run(), host.run(), terms.reaper(), updates.run(), hours_guard(), alerts.run(), remote.run(), activity.run())]
+    tasks = [asyncio.create_task(x) for x in (disc.run(), mon.run(), host.run(), terms.reaper(), updates.run(), hours_guard(), alerts.run(), remote.run(), activity.run(), netmap.run())]
     yield
     for t in tasks:
         t.cancel()
@@ -687,6 +691,7 @@ async def me(req: Request, s=Depends(require)):
         "branding": branding_for(s["user"]), "beer": store.settings["beer"],
         "canPassword": u["source"] == "local", "email": u.get("email", ""),
         "update": updates.info() if eff["admin"] else None,
+        "netmap": bool(eff["admin"] and netmap.enabled()),
     }
     resp = JSONResponse(out)
     if gate.cookie_domain() and gate.on() and not gate.user_of(req.cookies.get(idp.GATE_COOKIE)):
@@ -1138,6 +1143,8 @@ async def admin_settings(req: Request, s=Depends(require)):
             st["linkPublic"] = bool(body["linkPublic"])
             disc.links.clear()
             disc.wake()
+        if "netmap" in body:
+            st["netmap"] = {"enabled": bool((body["netmap"] or {}).get("enabled"))}
         if "access" in body:
             st["access"] = A.clean_access(body["access"]) or {"enabled": False}
         if "beer" in body:
@@ -1718,6 +1725,58 @@ async def host_get(server: str = "", s=Depends(require)):
         disc.icons.want("os:" + word, cands + ["linux"], [], lambda: None)
         snap = {**snap, "osIcon": disc.icons.url("os:" + word)}
     return snap
+
+
+# ============================================================================ machines du réseau (administrateurs)
+def _net(s, mid=None):
+    need_admin(s)
+    if not netmap.enabled():
+        err(404, "Option « Machines du réseau » désactivée")
+    if mid is not None and mid not in netmap.m:
+        err(404, "Machine inconnue")
+
+
+@app.get("/api/net")
+async def net_list(s=Depends(require)):
+    _net(s)
+    return netmap.listing()
+
+
+@app.get("/api/net/machine")
+async def net_detail(id: str, s=Depends(require)):
+    _net(s, id)
+    return await netmap.detail(id)
+
+
+@app.post("/api/net/action")
+async def net_action(req: Request, s=Depends(require)):
+    body = await req.json()
+    mid, act = str(body.get("id") or ""), body.get("action")
+    _net(s, mid if act != "scan" else None)
+    try:
+        if act == "scan":
+            netmap.swept = 0
+            await netmap.scan()
+            return netmap.listing()
+        if act == "wake":
+            await netmap.wake(mid)
+        elif act == "ports":
+            await netmap.scan_ports(netmap.m[mid], force=True)
+            await netmap.resolve(netmap.m[mid])
+        elif act == "label":
+            netmap.set_label(mid, body.get("label"))
+        elif act == "snmp":
+            netmap.set_snmp(mid, body.get("snmp") or {})
+        elif act == "forget":
+            netmap.forget(mid)
+            return {"ok": True}
+        else:
+            err(400, "Action inconnue")
+    except (ValueError, RuntimeError) as e:
+        err(400, str(e))
+    except SSHError as e:
+        fail(e)
+    return await netmap.detail(mid)
 
 
 @app.get("/api/host/processes")

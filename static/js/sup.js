@@ -2,7 +2,7 @@
    journaux Docker fusionnés (façon Dozzle) et journaux système (journalctl). */
 import {tr, trHtml} from './i18n.js';
 import {
-  h, ic, S, api, toast, toastErr, confirmBox, quiet, lstore, norm, fmtSize, fmtRate, fmtPct, fmtDur, cssv, tfmt,
+  h, ic, S, api, toast, toastErr, confirmBox, quiet, lstore, norm, fmtSize, fmtRate, fmtPct, fmtDur, cssv, tfmt, fmtWhen, fmtDay,
   withAdmin, elevatePrompt, appIcon, on, debounce, ask, modal, menu, Cancelled, choose,
 } from './core.js';
 import {chartBox, spark, meter, smooth} from './charts.js';
@@ -155,7 +155,7 @@ export const supTool = {
     const secret = d.env.some((e) => e.secret);
     modal({title: tr('Détails de {0}').replace('{0}', name), xwide: true, ok: null, cancel: 'Fermer', body: [
       h('table', {class: 'tbl kv'}, h('tbody', null,
-        row(tr('Image'), d.image), row(tr('Identifiant'), d.id), row(tr('Créé'), d.created && new Date(d.created).toLocaleString()),
+        row(tr('Image'), d.image), row(tr('Identifiant'), d.id), row(tr('Créé'), d.created && fmtWhen(d.created)),
         row(tr('Redémarrage automatique'), d.restart), row(tr('Redémarrages'), d.restarts), row(tr('Utilisateur'), d.user),
         row(tr('Commande'), [d.entrypoint, d.cmd].filter(Boolean).join(' ')), row(tr('Réseau'), d.networkMode),
         d.privileged ? row(tr('Privilégié'), tr('oui')) : null,
@@ -212,7 +212,7 @@ export const supTool = {
         h('td', {notr: true, text: x.driver}), h('td', {class: 'mono', notr: true, text: x.subnet || '—'}), h('td', null, ...pills(x.usedBy)),
         h('td', {class: 'acts'}, x.builtin ? h('small', {class: 'muted', text: 'Docker'}) : h('button', {class: 'ibtn', title: 'Brancher / débrancher un conteneur', html: ic('link', 15), onclick: () => this.plugRes(x)}), x.builtin ? null : del));
       return h('tr', null, h('td', null, h('b', {notr: true, class: x.anonymous ? 'mono' : '', text: x.anonymous ? x.name.slice(0, 12) + '…' : x.name}), x.anonymous ? h('small', {class: 'muted', text: ' anonyme'}) : null),
-        h('td', {notr: true, text: x.app || x.project || '—'}), h('td', null, ...pills(x.usedBy)), h('td', {text: x.created ? new Date(x.created).toLocaleDateString() : '—'}), h('td', {class: 'acts'}, del));
+        h('td', {notr: true, text: x.app || x.project || '—'}), h('td', null, ...pills(x.usedBy)), h('td', {text: fmtDay(x.created)}), h('td', {class: 'acts'}, del));
     });
     u.table.replaceChildren(h('table', {class: 'tbl'}, h('thead', null, h('tr', null, ...cols.map((t) => h('th', {text: t})))), h('tbody', null, rows)));
   },

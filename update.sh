@@ -95,6 +95,10 @@ ADMIN_USER=${ADMIN_USER:-$SSH_USER}
 envset SHADOW_GID "$SHADOW_GID"
 envset ADMIN_USER "$ADMIN_USER"
 grep -q "^CENTROL_REPO=" .env || envset CENTROL_REPO "PushPull-Tools/Centrol"
+# traps SNMP : port 162 de l'hôte, sauf s'il est déjà pris (snmptrapd…) : alors 1162, pour que Centrol démarre toujours
+if ! grep -q "^SNMP_TRAP_PORT=" .env; then
+  if ss -lunH "sport = :162" 2>/dev/null | grep -q . && ! docker ps --format '{{.Ports}}' | grep -q '162->1162'; then envset SNMP_TRAP_PORT 1162; else envset SNMP_TRAP_PORT 162; fi
+fi
 ok "Configuration : $CENTROL_URL · admin $ADMIN_USER"
 
 # ================================================================= 2. système

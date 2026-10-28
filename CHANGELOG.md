@@ -5,6 +5,8 @@ Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). Tant qu
 ## [1.0.0] — V1 — 2026-10
 
 ### Ajouté
+- **Machines du réseau** (option d'administration, désactivée par défaut, Alt+Maj+R) : toutes les machines déjà vues sur le réseau local (`ip neigh` et ping du sous-réseau), nom (DNS local, mDNS, NetBIOS), fabricant, type deviné avec icône, latence, première et dernière fois vue, ports ouverts courants avec « Ouvrir », bouton Sunshine si détecté, réveil Wake-on-LAN, statistiques de l'agent Centrol ; SNMP v2c et v3 en Python pur (ports du switch avec état, débit, erreurs et PoE, processeur, mémoire, température, disques, encre, graphiques sur 24 h), traps SNMP (UDP 162, réseau local) et alertes « machine injoignable », « redémarrage détecté », « port tombé ».
+- **Format de l'heure** (Paramètres › Apparence) : Auto (langue et pays du navigateur), 24 h ou 12 h AM/PM, partout dans Centrol ; l'ordre de la date suit le pays.
 - **Onglets en veille :** un onglet d'appli non regardé depuis 30 min (réglable : Paramètres › Vue d'ensemble › Onglets) est vidé de la mémoire, grisé, puis rechargé au clic, comme dans Chrome ou Brave.
 - **Comme Portainer :** onglets Images (télécharger, supprimer, « utilisée par »), Réseaux (créer, supprimer, brancher / débrancher un conteneur) et Volumes (créer, supprimer avec double validation) ; conteneurs : pause, reprise, arrêt forcé, renommer, recréer depuis le docker-compose ; ports publiés et internes, adresses IP par réseau, port visible dans la liste.
 - **Comme Glances :** alertes de seuil (processeur, mémoire, disque, température pendant N minutes, sur chaque machine) et alerte « conteneur arrêté depuis N minutes », vers Centrol et les webhooks.

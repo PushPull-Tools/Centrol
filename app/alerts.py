@@ -3,7 +3,8 @@
 Trois sortes de règles :
 - « log »    : un texte (ou une expression régulière) apparaît dans les journaux d'un conteneur ;
 - « metric » : un seuil de la machine est dépassé pendant N minutes (processeur, mémoire, disque, température), comme Glances ;
-- « down »   : un conteneur reste arrêté pendant N minutes.
+- « down »   : un conteneur reste arrêté pendant N minutes ;
+- « net »    : une machine du réseau est injoignable depuis N minutes, a redémarré, ou un de ses ports est tombé.
 """
 import asyncio
 import logging
@@ -17,6 +18,7 @@ log = logging.getLogger("centrol.alerts")
 INTERVAL = 20          # secondes entre deux lectures des journaux
 
 
+NET_EVENTS = {"offline": "Machine injoignable", "reboot": "Redémarrage détecté", "port": "Port tombé"}
 METRICS = {"cpu": "Processeur", "mem": "Mémoire", "disk": "Disque le plus plein", "temp": "Température"}
 
 
@@ -29,6 +31,16 @@ def clean_rules(rules) -> list[dict]:
                   "webhook": str(r.get("webhook") or "").strip()[:500], "enabled": r.get("enabled", True) is not False}
         if common["webhook"] and not re.match(r"^https?://", common["webhook"]):
             raise ValueError("Le webhook doit commencer par http:// ou https://")
+        if kind == "net":
+            ev = str(r.get("event") or "")
+            if ev not in NET_EVENTS:
+                raise ValueError("Événement réseau inconnu")
+            machines = [str(m)[:40] for m in (r.get("machines") or [])][:200]
+            if ev == "offline" and not machines:
+                raise ValueError("Coche au moins une machine")
+            out.append({**common, "name": str(r.get("name") or NET_EVENTS[ev])[:80], "event": ev, "machines": machines,
+                        "minutes": max(1, min(int(r.get("minutes") or 5), 1440)), "pattern": "", "regex": False, "containers": []})
+            continue
         if kind in ("metric", "down"):
             # seuil de la machine, ou conteneur arrêté, pendant « minutes »
             minutes = max(1, min(int(r.get("minutes") or 5), 1440))
@@ -84,6 +96,7 @@ class Alerts:
         self.breach: dict[tuple, float] = {}       # (règle, cible) -> début du dépassement
         self.hosts = lambda: {}                    # machines suivies : {"" : ce serveur, id : autre serveur} (réglé par main)
         self.names = lambda sid: sid or "Ce serveur"
+        self.net = None                            # machines du réseau (réglé par main)
 
     def rules(self) -> list[dict]:
         return [r for r in self.store.settings.get("alerts", []) if r.get("enabled", True)]
@@ -115,7 +128,7 @@ class Alerts:
     async def check_states(self, rules, now):
         """Seuils et conteneurs arrêtés : alerte quand la condition dure au moins « minutes »."""
         units = {"cpu": " %", "mem": " %", "disk": " %", "temp": " °C"}
-        down = {c["name"]: c for c in self.mon.summary() if not c["running"]}
+        down = {c["name"]: c for c in self.mon.summary() if not c["running"]} if self.mon else {}
         for r in rules:
             if r["kind"] == "metric":
                 hm = self.hosts().get(r["server"])
@@ -124,6 +137,19 @@ class Alerts:
             elif r["kind"] == "down":
                 watch = r["containers"] or []
                 targets = {n: (n in down, None) for n in watch}
+            elif r["kind"] == "net" and r["event"] == "offline" and self.net and self.net.enabled():
+                off = self.net.offline_since()
+                for mid in r["machines"]:
+                    key = (r["id"], mid)
+                    if mid not in off:
+                        self.breach.pop(key, None)
+                        continue
+                    start = self.breach.setdefault(key, off[mid] or now)
+                    if now - start < r["minutes"] * 60 or now - self.last.get(key, 0) < r["cooldown"] * 60:
+                        continue
+                    self.last[key] = now
+                    await self.fire(r, self.net.label(mid), f"Injoignable depuis {int((now - start) // 60)} min")
+                continue
             else:
                 continue
             for target, (bad, v) in targets.items():
@@ -143,7 +169,7 @@ class Alerts:
     async def tick(self):
         rules = self.rules()
         now0 = time.time()
-        await self.check_states([r for r in rules if r.get("kind") in ("metric", "down")], now0)
+        await self.check_states([r for r in rules if r.get("kind") in ("metric", "down", "net")], now0)
         rules = [r for r in rules if r.get("kind", "log") == "log"]
         if not rules:
             self.since.clear()
@@ -170,6 +196,18 @@ class Alerts:
                     continue
                 self.last[key] = now
                 await self.fire(r, name, hit)
+
+    async def net_event(self, mid, label, kind, text):
+        """Événement d'une machine du réseau (redémarrage, port tombé) -> règles « net » qui le suivent."""
+        now = time.time()
+        for r in self.rules():
+            if r.get("kind") != "net" or r["event"] != kind or (r["machines"] and mid not in r["machines"]):
+                continue
+            key = (r["id"], mid)
+            if now - self.last.get(key, 0) < r["cooldown"] * 60:
+                continue
+            self.last[key] = now
+            await self.fire(r, label, text)
 
     async def fire(self, rule, container, line):
         ev = {"t": int(time.time()), "rule": rule["name"], "container": container, "line": line[:500]}

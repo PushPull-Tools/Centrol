@@ -3,7 +3,7 @@
 import {tr, trHtml} from './i18n.js';
 import {
   $, h, ic, S, api, toast, toastErr, modal, ask, confirmBox, op, quiet, prefs, appIcon, tip, can, withAdmin,
-  collator, emit, on, Cancelled, iconUrlOf, liveBudget, iconField, elevatePrompt, isPhone,
+  collator, emit, on, Cancelled, iconUrlOf, liveBudget, iconField, elevatePrompt, isPhone, fmtWhen,
 } from './core.js';
 import {LANGS, flag, curLang} from './i18n.js';
 const OS = () => (S.me && S.me.os) || 'Linux';   // nom de la distribution du serveur (Ubuntu, Debian…)
@@ -285,6 +285,8 @@ const BUILD = {
     c.append(section('Apparence', 'Ces réglages ne concernent que ton compte.',
       opt('Langue', 'Langue de l’interface pour ton compte',
         langPicker(p.lang || S.me.lang || 'fr', async (v) => { await quiet(op('prefs.set', {lang: v})); reopenAfterReload('look'); }, null)),
+      opt('Format de l’heure', 'Partout dans Centrol. « Auto » suit la langue et le pays de ton navigateur ; l’ordre de la date suit toujours le pays',
+        seg([['auto', 'Auto'], ['24', '24 h'], ['12', '12 h AM/PM']], ['24', '12'].includes(p.timeFmt) ? p.timeFmt : 'auto', (v) => setPref('timeFmt', v))),
       opt('Thème', 'Clair, sombre ou selon ton système', seg([['dark', 'Sombre'], ['light', 'Clair'], ['auto', 'Système']], p.theme, (v) => setPref('theme', v))),
       opt('Animations', 'Zooms, glissements et fondus. « Désactivées » allège l’affichage sur les petites configurations ; « Système » suit le réglage « réduire les animations » de l’appareil', seg([['auto', 'Système'], ['on', 'Activées'], ['off', 'Désactivées']], ['on', 'off'].includes(p.anim) ? p.anim : 'auto', (v) => setPref('anim', v))),
       colorField('Couleur d’accent', p.accent !== '#7c9cff' ? p.accent : (b.accent || ''), b.accent || '#7c9cff', (v) => setPref('accent', v || '#7c9cff'), 'Boutons, onglet actif, sélection', lockOf('accent')),
@@ -480,7 +482,7 @@ const BUILD = {
         admin ? h('td', {text: u.moderates.map(gname).join(', ') || '—'}) : null,
         h('td', {class: 'mono', text: u.linux || '—'}),
         h('td', null, u.totp ? h('span', {class: 'pill ok', text: 'oui'}) : h('span', {class: 'muted', text: 'non'})),
-        admin ? h('td', {class: 'muted small', title: u.seen ? new Date(u.seen * 1000).toLocaleString() : null, text: ago(u.seen)}) : null,
+        admin ? h('td', {class: 'muted small', title: u.seen ? fmtWhen(u.seen) : null, text: ago(u.seen)}) : null,
         h('td', {class: 'acts'}, admin ? [
           h('button', {class: 'ibtn', title: 'Activité (connexions, sessions)', html: ic('pulse', 15), onclick: () => activityDialog(u)}),
           h('button', {class: 'ibtn', title: 'Modifier', html: ic('edit', 15), onclick: () => userDialog(u, d)}),
@@ -732,9 +734,14 @@ const BUILD = {
     const save = async () => { try { rules = (await api('POST', '/api/admin/alerts', {rules})).rules; paint(); toast('Alertes enregistrées'); } catch (e) { toastErr(e); paint(); throw e; } };
     const MET = {cpu: ['Processeur', '%'], mem: ['Mémoire', '%'], disk: ['Disque le plus plein', '%'], temp: ['Température', '°C']};
     const machines = [['', tr('Ce serveur')], ...((S.servers || []).map((x) => [x.id, x.name]))];
+    // machines du réseau (si l'option est activée) : injoignable, redémarrage, port tombé
+    const NET = {offline: 'Machine injoignable', reboot: 'Redémarrage détecté', port: 'Port tombé'};
+    const netList = S.me.netmap ? (((await quiet(api('GET', '/api/net'))) || {}).machines || []).sort((a, b) => collator.compare(a.name, b.name)) : [];
+    const netName = (id) => (netList.find((m) => m.id === id) || {name: id}).name;
     /** Ce que surveille une règle, en une ligne (colonne « Repère »). */
     const what = (r) => r.kind === 'metric' ? `${tr(MET[r.metric][0])} ≥ ${r.value} ${MET[r.metric][1]} · ${r.minutes} min · ${(machines.find((m) => m[0] === r.server) || ['', r.server])[1]}`
-      : r.kind === 'down' ? tr('Arrêté depuis {0} min').replace('{0}', r.minutes) : (r.regex ? '/' + r.pattern + '/' : r.pattern);
+      : r.kind === 'down' ? tr('Arrêté depuis {0} min').replace('{0}', r.minutes)
+      : r.kind === 'net' ? tr(NET[r.event]) + (r.event === 'offline' ? ' · ' + tr('{0} min').replace('{0}', r.minutes) : '') : (r.regex ? '/' + r.pattern + '/' : r.pattern);
     const edit = (r) => {
       const isNew = !r; r = r ? {...r} : {kind: 'log', name: '', pattern: '', regex: false, containers: [], cooldown: 10, notify: true, webhook: '', enabled: true, metric: 'cpu', value: 90, minutes: 5, server: ''};
       r.kind = r.kind || 'log';
@@ -762,6 +769,14 @@ const BUILD = {
           h('label', {class: 'fld'}, h('span', {text: 'Pendant au moins (minutes)'}), mins)],
         down: [h('p', {class: 'hint', text: 'Alerte quand un des conteneurs cochés reste arrêté plus longtemps que la durée choisie.'}), ct,
           h('label', {class: 'fld'}, h('span', {text: 'Arrêté depuis au moins (minutes)'}), minsD)]};
+      const nets = h('div', {class: 'checks'}, ...netList.map((m) => h('label', {class: 'check'}, h('input', {type: 'checkbox', value: m.id, checked: (r.machines || []).includes(m.id)}), h('span', {notr: true, text: `${m.name} (${m.ip})`}))));
+      const nev = h('select', {class: 'inp'}, ...Object.entries(NET).map(([k, t]) => h('option', {value: k, selected: r.event === k, text: tr(t)})));
+      const minsN = h('input', {class: 'inp w90', type: 'number', min: 1, max: 1440, value: r.minutes || 5});
+      const minsWrap = h('label', {class: 'fld'}, h('span', {text: 'Injoignable depuis au moins (minutes)'}), minsN);
+      const netHint = h('p', {class: 'hint'});
+      const paintNet = () => { minsWrap.hidden = nev.value !== 'offline'; netHint.textContent = tr(nev.value === 'offline' ? 'Coche les machines à surveiller.' : 'Machines suivies en SNMP. Aucune cochée = toutes.'); };
+      nev.onchange = paintNet; paintNet();
+      parts.net = [h('label', {class: 'fld'}, h('span', {text: 'Événement'}), nev), minsWrap, netHint, nets];
       const zone = h('div', {class: 'stack'});
       const showKind = (k) => {
         r.kind = k;
@@ -771,7 +786,7 @@ const BUILD = {
       showKind(r.kind);
       return modal({title: isNew ? 'Nouvelle alerte' : 'Modifier l’alerte', wide: true, body: [
         h('label', {class: 'fld'}, h('span', {text: 'Nom'}), name),
-        h('div', {class: 'fld'}, h('span', {text: 'Type'}), seg([['log', 'Texte dans les journaux'], ['metric', 'Seuil d’une machine'], ['down', 'Conteneur arrêté']], r.kind, showKind)),
+        h('div', {class: 'fld'}, h('span', {text: 'Type'}), seg([['log', 'Texte dans les journaux'], ['metric', 'Seuil d’une machine'], ['down', 'Conteneur arrêté'], ...(netList.length || r.kind === 'net' ? [['net', 'Machine du réseau']] : [])], r.kind, showKind)),
         zone,
         h('label', {class: 'fld'}, h('span', {text: 'Ne pas réalerter avant (minutes)'}), cd),
         h('label', {class: 'check'}, notify, h('span', {text: 'Notification dans Centrol (administrateurs connectés)'})),
@@ -779,9 +794,11 @@ const BUILD = {
           h('button', {class: 'btn sm', type: 'button', onclick: async () => { try { await api('POST', '/api/admin/alerts/test', {webhook: hook.value.trim()}); toast('Message de test envoyé'); } catch (e) { toastErr(e); } }}, 'Tester')))],
       onOk: async () => {
         Object.assign(r, {name: name.value.trim(), pattern: pat.value.trim(), regex: rx.checked, cooldown: +cd.value || 10, notify: notify.checked, webhook: hook.value.trim(),
-          containers: [...ct.querySelectorAll('input:checked')].map((i) => i.value), metric: met.value, value: +val.value, minutes: +(r.kind === 'down' ? minsD : mins).value || 5, server: srv.value});
+          containers: [...ct.querySelectorAll('input:checked')].map((i) => i.value), metric: met.value, value: +val.value, minutes: +(r.kind === 'down' ? minsD : r.kind === 'net' ? minsN : mins).value || 5, server: srv.value,
+          event: nev.value, machines: [...nets.querySelectorAll('input:checked')].map((i) => i.value)});
         if (r.kind === 'log' && !r.pattern) throw new Error('Indique le texte à repérer');
         if (r.kind === 'down' && !r.containers.length) throw new Error('Coche au moins un conteneur');
+        if (r.kind === 'net' && r.event === 'offline' && !r.machines.length) throw new Error('Coche au moins une machine');
         if (isNew) rules.push(r); else rules = rules.map((x) => (x.id === r.id ? r : x));
         await save();
       }});
@@ -790,7 +807,7 @@ const BUILD = {
       h('thead', null, h('tr', null, ...['Alerte', 'Repère', 'Conteneurs', 'Envoi', ''].map((t) => h('th', {text: t})))),
       h('tbody', null, rules.map((r) => h('tr', {class: r.enabled ? '' : 'dim'},
         h('td', null, h('b', {notr: true, text: r.name})), h('td', {class: r.kind === 'log' || !r.kind ? 'mono' : '', notr: true, text: what(r)}),
-        h('td', {notr: !!r.containers.length, text: r.kind === 'metric' ? '—' : r.containers.length ? r.containers.join(', ') : 'Tous'}),
+        h('td', {notr: !!(r.containers.length || (r.machines || []).length), text: r.kind === 'metric' ? '—' : r.kind === 'net' ? (r.machines.length ? r.machines.map(netName).join(', ') : 'Toutes') : r.containers.length ? r.containers.join(', ') : 'Tous'}),
         h('td', {text: [r.notify ? 'Centrol' : null, r.webhook ? 'Webhook' : null].filter(Boolean).join(' + ') || '—'}),
         h('td', {class: 'acts'}, sw(r.enabled, (v) => { r.enabled = v; return save().catch((e) => { r.enabled = !v; throw e; }); }, 'Activée'),
           h('button', {class: 'ibtn', title: 'Modifier', html: ic('edit', 15), onclick: () => edit(r)}),
@@ -798,7 +815,7 @@ const BUILD = {
       : h('p', {class: 'muted', text: 'Aucune alerte pour l’instant.'}));
     paint();
     const recent = d.recent.length ? h('div', {class: 'tablewrap'}, h('table', {class: 'tbl'}, h('tbody', null, d.recent.slice(0, 30).map((e) => h('tr', null,
-      h('td', {class: 'mono', notr: true, text: new Date(e.t * 1000).toLocaleString()}), h('td', {notr: true, text: e.rule}), h('td', {class: 'mono', notr: true, text: e.container}),
+      h('td', {class: 'mono', notr: true, text: fmtWhen(e.t)}), h('td', {notr: true, text: e.rule}), h('td', {class: 'mono', notr: true, text: e.container}),
       h('td', {class: 'mono small', notr: true, text: e.line})))))) : h('p', {class: 'muted', text: 'Aucune alerte déclenchée depuis le démarrage de Centrol.'});
     c.append(section('Alertes', 'Trois sortes d’alertes, vérifiées toutes les 20 secondes : un texte dans les journaux d’un conteneur, un seuil dépassé sur une machine (processeur, mémoire, disque, température), ou un conteneur qui reste arrêté. Centrol prévient les administrateurs et/ou envoie un message à un webhook (ntfy, Gotify, Matrix, Discord, Slack…).',
       h('div', {class: 'actions'}, h('button', {class: 'btn primary', html: ic('plus', 15) + '<span>Nouvelle alerte</span>', onclick: () => edit(null)})), list),
@@ -943,6 +960,11 @@ const BUILD = {
         h('label', {class: 'fld'}, h('span', {text: 'Webhook (facultatif)'}), h('div', {class: 'row'}, hook,
           h('button', {class: 'btn sm', onclick: async () => { try { await api('POST', '/api/admin/alerts/test', {webhook: hook.value.trim()}); toast('Message de test envoyé'); } catch (e) { toastErr(e); } }}, 'Tester'),
           h('button', {class: 'btn sm primary', onclick: () => saveAlert().catch(() => {})}, 'Enregistrer'))))));
+    // machines du réseau : option désactivée par défaut, réservée aux administrateurs
+    const nm = ((await api('GET', '/api/admin')).settings.netmap) || {};
+    c.append(section('Machines du réseau', 'Liste de toutes les machines déjà vues sur le réseau local de ce serveur (table des voisins, ping du sous-réseau toutes les 10 minutes) : noms, fabricant, ports ouverts, réveil à distance, SNMP. Visible des administrateurs seulement.',
+      opt('Activer « Machines du réseau »', 'Ajoute le bouton dans la barre (Alt+Maj+R). Les traps SNMP sont reçus sur le port UDP 162 du serveur, depuis le réseau local seulement',
+        sw(!!nm.enabled, async (v) => { try { await api('POST', '/api/admin/settings', {netmap: {enabled: v}}); toast(v ? 'Activé : premières machines dans une minute' : 'Désactivé'); } catch (e) { toastErr(e); throw e; } }, 'Machines du réseau'))));
   },
   async diag(c) {
     const box = h('div', null, h('p', {text: 'Chargement…'}));
@@ -978,7 +1000,7 @@ const BUILD = {
     const status = h('div');
     const paint = (u) => status.replaceChildren(
       opt('Version installée', 'Version de Centrol qui tourne sur ce serveur', h('b', {text: `${u.current} (${S.me.versionLabel})`})),
-      opt('Dernière version publiée', u.error ? 'Vérification impossible : ' + u.error : u.checked ? 'Vérifiée le ' + new Date(u.checked * 1000).toLocaleString('fr-FR') : 'Pas encore vérifiée',
+      opt('Dernière version publiée', u.error ? 'Vérification impossible : ' + u.error : u.checked ? 'Vérifiée le ' + fmtWhen(u.checked) : 'Pas encore vérifiée',
         u.latest ? h('div', {class: 'row'}, h('b', {text: u.latest.version}), u.available ? h('button', {class: 'btn sm primary', onclick: () => emit('update')}, 'Voir et mettre à jour') : h('span', {class: 'pill ok', text: 'à jour'})) : h('span', {class: 'muted', text: '—'})));
     paint(S.me.update || {current: S.me.version});
     c.append(section('Mises à jour', 'Centrol vérifie deux fois par jour si une nouvelle version est publiée sur GitHub, et prévient les administrateurs (notification et menu). Rien n’est installé sans toi.',
@@ -1014,7 +1036,7 @@ const BUILD = {
     const K = [
       ['Général', [['Ctrl+K', 'Chercher une appli ou un outil'], ['Alt+0 ou Échap', 'Vue d’ensemble'], ['Alt+1 … Alt+9', 'Ouvrir l’appli n° 1 à 9 de la barre'],
         ['Alt+Page↓ / Alt+Page↑', 'Appli suivante / précédente'], ['Alt+Maj+B', 'Afficher / masquer la barre'], ['Alt+Maj+D', 'Côte à côte : activer / fermer'], ['Ctrl+,', 'Paramètres']]],
-      ['Outils', [['Alt+Maj+S', 'Supervision'], ['Alt+Maj+T', 'Terminal'], ['Alt+Maj+F', 'Fichiers'], ['Alt+Maj+C', 'Calculatrice (si activée)']]],
+      ['Outils', [['Alt+Maj+S', 'Supervision'], ['Alt+Maj+T', 'Terminal'], ['Alt+Maj+F', 'Fichiers'], ['Alt+Maj+C', 'Calculatrice (si activée)'], ['Alt+Maj+R', 'Machines du réseau (si activée)']]],
       ['Vue d’ensemble', [['Flèches', 'Se déplacer entre les vignettes'], ['Entrée', 'Ouvrir'], ['Taper du texte', 'Recherche rapide'], ['− / +', 'Vignettes plus petites / plus grandes (grille)'],
         ['Alt+Maj+V', 'Changer d’affichage (grille, blocs, liste)'], ['Alt+Maj+E', 'Favoris uniquement : oui / non']]],
       ['Fichiers', [['Ctrl+C / Ctrl+X / Ctrl+V', 'Copier / couper / coller'], ['Suppr', 'Supprimer'], ['F2', 'Renommer'], ['Entrée', 'Ouvrir'], ['Retour arrière', 'Dossier parent'],
@@ -1144,7 +1166,7 @@ function ago(t) {
 async function activityDialog(u) {
   const box = h('div', {class: 'actv'}, h('p', {text: 'Chargement…'}));
   const KIND = {login: ['ok', 'Connexion'], logout: ['', 'Déconnexion'], fail: ['ko', 'Échec'], fail2fa: ['ko', 'Échec 2FA'], hours: ['warn', 'Refus (horaires)'], revoked: ['warn', 'Session fermée'], sso: ['ok', 'Connexion à une appli (SSO)']};
-  const when = (t) => (t ? new Date(t * 1000).toLocaleString() : '—');
+  const when = (t) => fmtWhen(t);
   const paint = async () => {
     let a;
     try { a = await api('GET', '/api/admin/user/activity?username=' + encodeURIComponent(u.username)); } catch (e) { box.replaceChildren(h('p', {class: 'banner warn', text: e.message})); return; }

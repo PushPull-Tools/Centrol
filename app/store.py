@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     "branding": {"name": "", "logo": "", "background": "", "bgDim": 35, "bgBlur": 0, "colors": {}},
     "beer": {"enabled": False, "url": ""},
     "updates": {"enabled": True, "repo": ""},
+    "netmap": {"enabled": False},          # machines du réseau (administrateurs seulement)
     "auth": {
         "linux": True,
         "ldap": {"enabled": False, "url": "", "bindDn": "", "bindPassword": "", "baseDn": "",
@@ -59,7 +60,7 @@ DEFAULT_PREFS = {
     "thumbs": "hover", "thumbsV": 3, "peekDelay": 0, "thumbRefresh": 0, "notify": True,
     "termKeep": 60, "tabSleep": 30, "termFont": 13, "termScrollback": 10000,
     "elevKeep": 10,                        # mode administrateur : minutes après la dernière action ; 0 = jusqu'à la déconnexion ; -1 = jamais redemandé
-    "confirmClose": True, "calc": False,
+    "confirmClose": True, "calc": False, "timeFmt": "auto",
 }
 PREF_RULES = {
     "theme": ("dark", "light", "auto"),
@@ -93,6 +94,7 @@ PREF_RULES = {
     "termFont": (11, 12, 13, 14, 15, 16, 18),
     "termScrollback": (1000, 5000, 10000, 50000),
     "confirmClose": (True, False),
+    "timeFmt": ("auto", "24", "12"),            # format de l'heure : selon la langue et le pays du navigateur, 24 h, 12 h AM/PM
 }
 
 

@@ -180,6 +180,7 @@ LAN_IP=$(hostname -I | awk '{print $1}')
 cat > .env <<ENV
 # Généré par install.sh — relancer l'installeur pour modifier
 CENTROL_PORT=$CENTROL_PORT
+SNMP_TRAP_PORT=$(if ss -lunH "sport = :162" 2>/dev/null | grep -q . && ! docker ps --format '{{.Ports}}' | grep -q '162->1162'; then echo 1162; else echo 162; fi)
 CENTROL_URL=$CENTROL_URL
 PROXY_NETWORK=$PROXY_NETWORK
 NPM_DATA_DIR=$NPM_DATA_DIR

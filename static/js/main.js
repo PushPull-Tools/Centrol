@@ -1,7 +1,7 @@
 /* Centrol — démarrage, temps réel, thème, raccourcis, recherche rapide. */
 import {trace} from './trace.js';
 import {
-  $, h, ic, S, api, toast, toastErr, prefs, lstore, on, emit, appOf, nameOf, appIcon, flatApps, catView, tools,
+  $, h, ic, S, api, toast, toastErr, prefs, fmtWith, lstore, on, emit, appOf, nameOf, appIcon, flatApps, catView, tools,
   BUILTIN, toolOn, norm, op, quiet, closeMenu, menuOpen, can, seeUrl, ovView, ovCols, ovKey,
 } from './core.js';
 import {registerTool, syncWins, setMode, show, layoutOverview, placeFocused, initStage, openSplit, closeSplit, restartThumbRefresh, watchAppsHealth} from './stage.js';
@@ -11,6 +11,7 @@ import {termTool} from './term.js';
 import {filesTool} from './files.js';
 import {supTool} from './sup.js';
 import {calcTool} from './calc.js';
+import {netTool} from './net.js';
 import {showNews, updateNotice} from './news.js';
 import {setLang, translateDom, tr, curLang} from './i18n.js';
 import {logout} from './bar.js';
@@ -19,6 +20,7 @@ registerTool('@sup', supTool);
 registerTool('@term', termTool);
 registerTool('@files', filesTool);
 registerTool('@calc', calcTool);
+registerTool('@net', netTool);
 
 // ============================================================ rendu
 let queued = false;
@@ -204,7 +206,7 @@ function bindKeys() {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === ',')) { e.preventDefault(); return openSettings(); }
     if (document.querySelector('.modal-bg')) return;
     if (e.altKey && e.shiftKey && !e.ctrlKey) {
-      const map = {KeyS: '@sup', KeyT: '@term', KeyF: '@files', KeyC: '@calc'};
+      const map = {KeyS: '@sup', KeyT: '@term', KeyF: '@files', KeyC: '@calc', KeyR: '@net'};
       if (map[code] && toolOn(BUILTIN[map[code]])) { e.preventDefault(); return show(map[code], S.mode === 'focus' ? 'focus' : 'tabs'); }
       if (code === 'KeyB') { e.preventDefault(); return toggleBar(); }
       if (code === 'KeyD') { e.preventDefault(); return S.split ? closeSplit() : palette({split: true}); }
@@ -258,7 +260,7 @@ function paintAccess() {
   if (!a.open) {
     if (bar) bar.remove();
     if (!lock) {
-      const next = a.next ? new Date(a.next * 1000).toLocaleString(curLang(), {weekday: 'long', hour: '2-digit', minute: '2-digit'}) : null;
+      const next = a.next ? fmtWith(a.next, {weekday: 'long', hour: '2-digit', minute: '2-digit'}) : null;
       const b = S.me.branding || {};
       lock = h('div', {id: 'acclock', role: 'alertdialog', 'aria-modal': 'true'},
         b.background ? h('div', {class: 'accbg', style: {'background-image': `url("${b.background}")`}}) : null,

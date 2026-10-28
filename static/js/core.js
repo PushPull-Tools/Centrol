@@ -119,6 +119,20 @@ export const P = {
   stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
   pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
   info2: '<circle cx="12" cy="12" r="9.5"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".6"/>',
+  // machines du réseau : un type deviné = une icône
+  network: '<rect x="9" y="2.5" width="6" height="5" rx="1"/><rect x="2.5" y="16.5" width="6" height="5" rx="1"/><rect x="15.5" y="16.5" width="6" height="5" rx="1"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>',
+  router: '<rect x="2.5" y="13" width="19" height="7" rx="2"/><line x1="6.5" y1="16.5" x2="6.51" y2="16.5"/><line x1="10" y1="16.5" x2="10.01" y2="16.5"/><path d="M15 13V8M8.5 6.5a5 5 0 0 1 7 0M6 4a8.5 8.5 0 0 1 12 0"/>',
+  switch: '<rect x="2" y="7" width="20" height="10" rx="2"/><path d="M5.5 11h2v2.5h-2zM9.5 11h2v2.5h-2zM13.5 11h2v2.5h-2zM17.5 11h1"/>',
+  printer: '<path d="M6 9V3h12v6"/><rect x="2.5" y="9" width="19" height="8" rx="2"/><rect x="6" y="14" width="12" height="7"/>',
+  phone: '<rect x="6.5" y="2" width="11" height="20" rx="2.5"/><line x1="11" y1="18.5" x2="13" y2="18.5"/>',
+  tv: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  speaker: '<rect x="5" y="2" width="14" height="20" rx="2.5"/><circle cx="12" cy="14" r="4"/><circle cx="12" cy="6.5" r=".8"/>',
+  camera: '<path d="M2.5 8.5a2 2 0 0 1 2-2H7l1.5-2.5h7L17 6.5h2.5a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/>',
+  laptop: '<rect x="4" y="4.5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/>',
+  chip: '<rect x="6" y="6" width="12" height="12" rx="1.5"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/>',
+  gamepad: '<rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 10.5v4M5 12.5h4"/><circle cx="15.5" cy="11.5" r=".9"/><circle cx="18" cy="13.5" r=".9"/>',
+  power: '<path d="M18.4 6.6a9 9 0 1 1-12.8 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
+  unplug: '<path d="M7 13.5 3.5 17a2.1 2.1 0 0 0 0 3l.5.5a2.1 2.1 0 0 0 3 0l3.5-3.5"/><path d="m6 12 6 6M8.5 9.5 10 8M14 15.5l1.5-1.5"/><path d="M17 10.5 20.5 7a2.1 2.1 0 0 0 0-3L20 3.5a2.1 2.1 0 0 0-3 0L13.5 7"/><path d="m12 6 6 6"/><line x1="3" y1="3" x2="21" y2="21"/>',
 };
 export const ic = (n, s = 16, cls = '') => `<svg class="i ${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -129,9 +143,34 @@ export const hue = (s) => { let x = 0; for (const c of String(s)) x = (x * 31 + 
 export const fmtSize = (n) => n == null ? '—' : n < 1024 ? n + ' o' : n < 1048576 ? (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' Ko' : n < 1073741824 ? (n / 1048576).toFixed(1) + ' Mo' : n < 1099511627776 ? (n / 1073741824).toFixed(2) + ' Go' : (n / 1099511627776).toFixed(2) + ' To';
 export const fmtRate = (v) => fmtSize(Math.round(v || 0)) + '/s';
 export const fmtPct = (v) => ((v || 0) < 10 ? (v || 0).toFixed(1) : Math.round(v)) + ' %';
-const dtf = new Intl.DateTimeFormat('fr-FR', {day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit'});
-export const fmtDate = (s) => s ? dtf.format(new Date(s * 1000)) : '—';
-export const tfmt = new Intl.DateTimeFormat('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+// Dates et heures : format choisi par chaque compte (Paramètres › Apparence › Format de l'heure).
+// « Auto » suit la langue et le pays du navigateur (ex. en-US : 3:05 PM et mois/jour) ; l'ordre de la date suit toujours le pays.
+const LOCALE = () => (typeof navigator !== 'undefined' && navigator.language) || 'fr-FR';
+const fmts = new Map();
+function dtFormat(opts) {
+  let tf = 'auto';
+  try { tf = (S.me && prefs().timeFmt) || 'auto'; } catch { /* avant la connexion */ }
+  const key = tf + JSON.stringify(opts);
+  if (!fmts.has(key)) {
+    const cycle = opts.hour ? (tf === '24' ? {hourCycle: 'h23'} : tf === '12' ? {hour12: true} : {}) : {};
+    fmts.set(key, new Intl.DateTimeFormat(LOCALE(), {...opts, ...cycle}));
+  }
+  return fmts.get(key);
+}
+const HM = {hour: '2-digit', minute: '2-digit'}, DAY = {day: '2-digit', month: '2-digit', year: 'numeric'};
+const at = (s) => new Date(typeof s === 'number' && s < 1e12 ? s * 1000 : s);   // secondes, millisecondes ou texte ISO
+/** Date et heure courtes (fichiers, listes) : 28/10/26 14:05. */
+export const fmtDate = (s) => s ? dtFormat({day: '2-digit', month: '2-digit', year: '2-digit', ...HM}).format(at(s)) : '—';
+/** Date et heure complètes : 28/10/2026 14:05. */
+export const fmtWhen = (s) => s ? dtFormat({...DAY, ...HM}).format(at(s)) : '—';
+/** Jour seul : 28/10/2026. */
+export const fmtDay = (s) => s ? dtFormat(DAY).format(at(s)) : '—';
+/** Heure seule : 14:05 (ou 2:05 PM). */
+export const fmtHM = (s) => s ? dtFormat(HM).format(at(s)) : '—';
+/** Heure avec secondes (graphiques, journaux). Garde la forme d'un Intl.DateTimeFormat : tfmt.format(date). */
+export const tfmt = {format: (d) => dtFormat({...HM, second: '2-digit'}).format(d)};
+/** Format libre (ex. jour de la semaine + heure), toujours avec le format de l'heure choisi. */
+export const fmtWith = (s, opts) => dtFormat(opts).format(at(s));
 export function fmtDur(sec) {
   sec = Math.floor(sec || 0);
   const d = Math.floor(sec / 86400), hh = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
@@ -355,8 +394,10 @@ export const BUILTIN = {
   '@files': {key: '@files', name: 'Fichiers', icon: 'folder', builtin: true, domain: 'Explorateur', tool: 'files', kbd: 'Alt+Maj+F'},
   // outil personnel, sans accès au serveur : chacun l'active ou non dans ses réglages (désactivé par défaut)
   '@calc': {key: '@calc', name: 'Calculatrice', icon: 'calc', builtin: true, domain: 'Outil', pref: 'calc', kbd: 'Alt+Maj+C'},
+  // option d'administration (Paramètres › Serveurs), désactivée par défaut : jamais visible d'un non-administrateur
+  '@net': {key: '@net', name: 'Machines du réseau', icon: 'network', builtin: true, domain: 'Réseau local', flag: 'netmap', kbd: 'Alt+Maj+R'},
 };
-export const toolOn = (t) => (t.pref ? !!prefs()[t.pref] : can(t.tool));
+export const toolOn = (t) => (t.flag ? !!(S.me && S.me.admin && S.me[t.flag]) : t.pref ? !!prefs()[t.pref] : can(t.tool));
 export const tools = () => Object.values(BUILTIN).filter(toolOn);
 export const appOf = (k) => BUILTIN[k] || S.apps.find((a) => a.key === k);
 export const ov = (k) => (S.profile && S.profile.apps[k]) || {};
