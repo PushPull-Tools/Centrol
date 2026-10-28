@@ -295,6 +295,15 @@ class NetMap:
         self.load()
 
     # ------------------------------------------------------------------ état
+    def expire_after(self) -> float:
+        """Secondes sans contact avant « Expirée » (0 = jamais) ; 3 mois par défaut."""
+        months = (self.store.settings.get("netmap") or {}).get("expire", 3)
+        return months * 30 * 86400 if months else 0
+
+    def expired(self, m) -> bool:
+        ttl = self.expire_after()
+        return bool(ttl) and not m.get("online") and time.time() - m.get("last", 0) > ttl
+
     def enabled(self) -> bool:
         return bool((self.store.settings.get("netmap") or {}).get("enabled"))
 
@@ -555,7 +564,7 @@ class NetMap:
 
     def offline_since(self) -> dict:
         """Pour les alertes « machine injoignable » : identifiant -> dernière fois vue (seulement si hors ligne)."""
-        return {mid: m.get("last", 0) for mid, m in self.m.items() if not m.get("online")}
+        return {mid: m.get("last", 0) for mid, m in self.m.items() if not m.get("online") and not self.expired(m)}   # une machine expirée ne déclenche plus d'alerte
 
     # ------------------------------------------------------------------ agent Centrol sur la machine
     def agent_of(self, m) -> str | None:
@@ -588,6 +597,7 @@ class NetMap:
         m["agent"] = self.agent_of(m)
         r["type"] = guess_type(m)
         r["network"] = r["type"] in NETWORK
+        r["expired"] = self.expired(m)
         r["kind"] = m.get("kind") or ""
         r["agent"] = m["agent"] is not None
         r["snmp"] = bool((self.cfg.get(m["id"]) or {}).get("enabled"))
@@ -595,7 +605,8 @@ class NetMap:
 
     def listing(self) -> dict:
         return {"machines": [self.row(m) for m in self.m.values()], "scanned": self.scanned, "error": self.error,
-                "nets": [str(n) for _, n in self.nets], "vendors": bool(self.oui.db)}
+                "nets": [str(n) for _, n in self.nets], "vendors": bool(self.oui.db),
+                "expire": (self.store.settings.get("netmap") or {}).get("expire", 3)}
 
     async def detail(self, mid) -> dict:
         m = self.m[mid]

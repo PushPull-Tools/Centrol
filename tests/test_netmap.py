@@ -230,3 +230,14 @@ def test_machines_reservees_aux_admins_et_desactivees_par_defaut(admin, alice):
     assert admin.get("/api/net", headers=HDR).status_code == 404
     assert admin.get("/api/me", headers=HDR).json()["netmap"] is False
     assert alice.get("/api/net", headers=HDR).status_code == 403
+
+
+def test_expiration_apres_trois_mois_par_defaut():
+    nm = _map()
+    M.store.settings["netmap"] = {"enabled": False, "expire": 3}
+    old = {"id": "x", "online": False, "last": 1}
+    assert nm.expired(old) and not nm.expired({"online": False, "last": __import__("time").time() - 86400})
+    nm.m = {"x": old}
+    assert nm.offline_since() == {}                       # plus d'alerte pour une machine expirée
+    M.store.settings["netmap"]["expire"] = 0
+    assert not nm.expired(old)

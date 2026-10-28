@@ -964,7 +964,9 @@ const BUILD = {
     const nm = ((await api('GET', '/api/admin')).settings.netmap) || {};
     c.append(section('Machines du réseau', 'Liste de toutes les machines déjà vues sur le réseau local de ce serveur, par la table des voisins et un ping discret (un paquet par machine toutes les 2 à 5 minutes, tout le sous-réseau toutes les 30 minutes) : noms, fabricant, ports ouverts, réveil à distance, SNMP. Visible des administrateurs seulement.',
       opt('Activer « Machines du réseau »', 'Ajoute le bouton dans la barre (Alt+Maj+R). Les traps SNMP sont reçus sur le port UDP 162 du serveur, depuis le réseau local seulement',
-        sw(!!nm.enabled, async (v) => { try { await api('POST', '/api/admin/settings', {netmap: {enabled: v}}); toast(v ? 'Activé : premières machines dans une minute' : 'Désactivé'); } catch (e) { toastErr(e); throw e; } }, 'Machines du réseau'))));
+        sw(!!nm.enabled, async (v) => { try { await api('POST', '/api/admin/settings', {netmap: {enabled: v}}); toast(v ? 'Activé : premières machines dans une minute' : 'Désactivé'); } catch (e) { toastErr(e); throw e; } }, 'Machines du réseau')),
+      opt('Expiration', 'Une machine pas vue depuis cette durée passe dans le groupe « Expirées » et ne déclenche plus d’alerte. Rien n’est supprimé',
+        seg([[1, '1 mois'], [3, '3 mois'], [6, '6 mois'], [12, '1 an'], [0, 'Jamais']], nm.expire ?? 3, async (v) => { try { await api('POST', '/api/admin/settings', {netmap: {expire: v}}); toast('Enregistré'); } catch (e) { toastErr(e); throw e; } }))));
   },
   async diag(c) {
     const box = h('div', null, h('p', {text: 'Chargement…'}));

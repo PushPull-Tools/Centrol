@@ -25,7 +25,7 @@ DEFAULT_SETTINGS = {
     "branding": {"name": "", "logo": "", "background": "", "bgDim": 35, "bgBlur": 0, "colors": {}},
     "beer": {"enabled": False, "url": ""},
     "updates": {"enabled": True, "repo": ""},
-    "netmap": {"enabled": False},          # machines du réseau (administrateurs seulement)
+    "netmap": {"enabled": False, "expire": 3},          # machines du réseau (administrateurs seulement)
     "auth": {
         "linux": True,
         "ldap": {"enabled": False, "url": "", "bindDn": "", "bindPassword": "", "baseDn": "",

@@ -1144,7 +1144,10 @@ async def admin_settings(req: Request, s=Depends(require)):
             disc.links.clear()
             disc.wake()
         if "netmap" in body:
-            st["netmap"] = {"enabled": bool((body["netmap"] or {}).get("enabled"))}
+            nm, old = body["netmap"] or {}, st.get("netmap") or {}
+            exp = nm.get("expire", old.get("expire", 3))
+            # expiration : machine pas vue depuis N mois (0 = jamais), 3 mois par défaut
+            st["netmap"] = {"enabled": bool(nm.get("enabled", old.get("enabled"))), "expire": exp if exp in (1, 3, 6, 12, 0) else 3}
         if "access" in body:
             st["access"] = A.clean_access(body["access"]) or {"enabled": False}
         if "beer" in body:

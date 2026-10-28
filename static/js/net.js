@@ -48,7 +48,7 @@ export const netTool = {
   paintList() {
     this.sel = null;
     const search = h('input', {class: 'inp', type: 'search', placeholder: 'Nom, adresse, fabricant…', value: this.q, oninput: () => { this.q = search.value; this.paintRows(); }});
-    const seg = h('div', {class: 'seg'}, ...[['all', 'Toutes'], ['on', 'En ligne'], ['off', 'Déconnectées']].map(([v, l]) =>
+    const seg = h('div', {class: 'seg'}, ...[['all', 'Toutes'], ['on', 'En ligne'], ['off', 'Déconnectées'], ['exp', 'Expirées']].map(([v, l]) =>
       h('button', {class: this.filter === v ? 'on' : '', onclick: (e) => { this.filter = v; seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.currentTarget)); this.paintRows(); }}, l)));
     const scan = h('button', {class: 'btn sm', html: ic('refresh', 14) + `<span>${tr('Scanner maintenant')}</span>`, onclick: async () => {
       scan.disabled = true; scan.classList.add('busy');
@@ -69,7 +69,7 @@ export const netTool = {
     if (!this.tbody || !this.data) return;
     const d = this.data, q = norm(this.q);
     const rows = d.machines
-      .filter((m) => (this.filter === 'all' || (this.filter === 'on') === !!m.online))
+      .filter((m) => (this.filter === 'all' ? true : this.filter === 'exp' ? m.expired : this.filter === 'on' ? m.online : !m.online && !m.expired))
       .filter((m) => !q || norm([m.name, m.ip, m.mac, m.vendor, ...Object.values(m.names || {})].join(' ')).includes(q))
       .sort((a, b) => (b.online - a.online) || collator.compare(ipKey(a.ip), ipKey(b.ip)));
     const on = d.machines.filter((m) => m.online).length;
@@ -90,11 +90,13 @@ export const netTool = {
     };
     // un groupe par type de matériel, repliable (état gardé dans ce navigateur)
     const folded = lstore.get('netFolded', []);
-    const groups = GROUPS.map(([id, title, icon, types]) => [id, title, icon, rows.filter((m) => types.includes(m.type))]).filter((g) => g[3].length);
+    // les machines expirées (pas vues depuis N mois, réglable) sont regroupées à part, en bas, repliées par défaut
+    const groups = [...GROUPS.map(([id, title, icon, types]) => [id, title, icon, rows.filter((m) => !m.expired && types.includes(m.type))]),
+      ['expired', tr('Expirées (pas vues depuis {0} mois)').replace('{0}', d.expire), 'clock', rows.filter((m) => m.expired)]].filter((g) => g[3].length);
     this.tbody.replaceChildren(...(rows.length ? groups.flatMap(([id, title, icon, list]) => {
-      const shut = folded.includes(id) && !q;
-      const head = h('tr', {class: 'net-group', tabindex: 0, onclick: () => { lstore.set('netFolded', shut ? folded.filter((x) => x !== id) : [...folded, id]); this.paintRows(); }},
-        h('td', {colspan: 7}, h('span', {class: 'chev' + (shut ? '' : ' open'), html: ic('chevR', 12)}), h('span', {html: ic(icon, 15)}), h('b', {text: title}),
+      const shut = (id === 'expired' ? !folded.includes('expired-open') : folded.includes(id)) && !q && this.filter !== 'exp';
+      const head = h('tr', {class: 'net-group', tabindex: 0, onclick: () => { const k = id === 'expired' ? 'expired-open' : id, add = id === 'expired' ? shut : !shut; lstore.set('netFolded', add ? [...folded, k] : folded.filter((x) => x !== k)); this.paintRows(); }},
+        h('td', {colspan: 7}, h('span', {class: 'chev' + (shut ? '' : ' open'), html: ic('chevR', 12)}), h('span', {html: ic(icon, 15)}), h('b', {notr: id === 'expired', text: title}),
           h('span', {class: 'muted small', notr: true, text: `${list.filter((m) => m.online).length} / ${list.length}`})));
       return [head, ...(shut ? [] : list.map(rowEl))];
     }) : [h('tr', null, h('td', {colspan: 7, class: 'hint', text: d.machines.length ? 'Aucune machine ne correspond.' : d.error ? tr('Lecture du réseau impossible : ') + d.error : 'Premier passage en cours… (une minute environ)'}))]));
