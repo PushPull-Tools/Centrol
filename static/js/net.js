@@ -131,7 +131,7 @@ export const netTool = {
       m.wol ? h('button', {class: 'btn sm', html: ic('power', 14) + `<span>${tr('Réveiller')}</span>`, title: 'Wake-on-LAN : envoie le paquet magique depuis le serveur',
         onclick: () => this.act(m, 'wake', {}, 'Paquet de réveil envoyé').catch(() => {})}) : null,
       m.sunshine ? h('a', {class: 'btn sm primary', href: `https://${m.ip}:47990`, target: '_blank', rel: 'noopener', html: ic('tv', 14) + '<span>Sunshine</span>', title: tr('Interface web de Sunshine (streaming de jeux)')}) : null,
-      h('button', {class: 'btn sm', html: ic('refresh', 14) + `<span>${tr('Relire les ports et les noms')}</span>`, onclick: (e) => { e.currentTarget.disabled = true; this.act(m, 'ports').catch(() => {}); }}),
+      h('button', {class: 'btn sm', html: ic('refresh', 14) + `<span>${tr('Actualiser')}</span>`, onclick: (e) => { e.currentTarget.disabled = true; this.act(m, 'ports').catch(() => {}); }}),
       h('button', {class: 'btn sm', html: ic('edit', 14) + `<span>${tr('Renommer')}</span>`, onclick: async () => {
         const v = await ask('Nom affiché', {value: m.label || '', placeholder: m.name, hint: 'Vide : nom trouvé sur le réseau.', allowEmpty: true});
         if (v != null) this.act(m, 'label', {label: v}).catch(() => {});
