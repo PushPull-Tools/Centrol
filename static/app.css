@@ -174,7 +174,7 @@ body[data-bar="left"] .tabs-wrap, body[data-bar="right"] .tabs-wrap { order: 4; 
 .menubtn { width: auto; display: flex; gap: 2px; padding: 0 6px 0 4px; }
 body[data-bar="left"] .tool, body[data-bar="right"] .tool { width: 100%; }
 body[data-bar="left"] .menubtn, body[data-bar="right"] .menubtn { justify-content: center; }
-.avatar { width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center; font-weight: 700; font-size: 12px; color: #fff; flex: none;
+.avatar { width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center; font-weight: 700; font-size: 12px; color: #fff; flex: none; line-height: 1; text-align: center; padding: 0; box-sizing: border-box; letter-spacing: 0; text-indent: 0;
   background: linear-gradient(135deg, hsl(var(--h) 62% 55%), hsl(calc(var(--h) + 40) 60% 42%)); }
 .avatar.av-lg { width: 34px; height: 34px; font-size: 15px; }
 .avatar.av-xl { width: 52px; height: 52px; font-size: 22px; }
