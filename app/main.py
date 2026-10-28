@@ -1765,6 +1765,8 @@ async def net_action(req: Request, s=Depends(require)):
             await netmap.resolve(netmap.m[mid])
         elif act == "label":
             netmap.set_label(mid, body.get("label"))
+        elif act == "kind":
+            netmap.set_kind(mid, body.get("kind"))
         elif act == "snmp":
             netmap.set_snmp(mid, body.get("snmp") or {})
         elif act == "forget":

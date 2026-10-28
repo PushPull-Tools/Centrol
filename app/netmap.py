@@ -27,7 +27,9 @@ from .store import _write
 log = logging.getLogger("centrol.netmap")
 
 STEP = 60                 # secondes entre deux lectures de la table des voisins
-SWEEP = 600               # ping de tout le sous-réseau toutes les 10 min
+SWEEP = 1800              # ping de tout le sous-réseau toutes les 30 min (découverte des nouvelles machines)
+PING_OK = 300             # machine confirmée par le noyau (REACHABLE) : 1 ping toutes les 5 min, pour la latence
+PING_DOUBT = 120          # sinon : 1 ping toutes les 2 min pour savoir si elle est toujours là
 OFFLINE_AFTER = 3         # tours manqués avant « Déconnecté » (évite les clignotements des téléphones en veille)
 NAMES_EVERY = 6 * 3600    # noms relus toutes les 6 h
 PORTS_EVERY = 600         # ports relus au plus toutes les 10 min (à l'ouverture de la fiche)
@@ -48,9 +50,13 @@ PORTS = [
 SUNSHINE = 47990
 
 # ============================================================================ type deviné (avec son icône côté interface)
+# équipements réseau (routeur, switch, point d'accès) : séparés des machines dans la liste
+NETWORK = ("router", "switch", "ap")
+NET_VENDORS = ("netgear", "tp-link", "ubiquiti", "mikrotik", "gl.inet", "gl technologies", "sagemcom", "zyxel", "cisco", "juniper",
+               "arcadyan", "technicolor", "fritz", "avm gmbh", "huawei technologies", "nokia", "netis", "linksys", "draytek",
+               "aruba", "ruckus", "eero", "mercusys", "cudy", "omada", "unifi", "edgeswitch", "mesh", "repeater", "répéteur")
+PC_PORTS = {22, 445, 3389, 5900, 47990, 62078}
 TYPES = {
-    "router": ("netgear", "tp-link", "ubiquiti", "mikrotik", "gl.inet", "gl technologies", "sagemcom", "zyxel", "cisco", "juniper",
-               "arcadyan", "technicolor", "fritz", "avm gmbh", "huawei technologies", "nokia", "netis", "linksys", "draytek"),
     "printer": ("hewlett", "epson", "brother", "canon", "lexmark", "xerox", "kyocera", "ricoh", "konica", "printer", "imprimante"),
     "nas": ("synology", "qnap", "asustor", "western digital", "buffalo", "terramaster", "nas"),
     "tv": ("lg electronics", "sony", "vizio", "roku", "tcl", "hisense", "philips", "chromecast", "tv", "bravia", "tizen"),
@@ -63,18 +69,27 @@ TYPES = {
     "phone": ("apple", "samsung electronics", "oneplus", "oppo", "vivo", "realme", "motorola", "google", "fairphone", "iphone",
               "android", "pixel", "galaxy", "redmi", "poco"),
     "computer": ("intel", "dell", "lenovo", "asustek", "micro-star", "gigabyte", "realtek", "hp inc", "acer", "framework",
-                 "desktop", "laptop", "pc-", "thinkpad", "macbook"),
+                 "desktop", "laptop", "pc-", "thinkpad", "macbook", "pop-os", "bazzite", "fedora", "ubuntu", "debian", "windows"),
 }
 
 
 def guess_type(m: dict) -> str:
     """Type le plus probable d'après le rôle, les ports ouverts, le fabricant et le nom."""
+    if m.get("kind") in TYPE_NAMES:          # type choisi à la main dans la fiche
+        return m["kind"]
     if m.get("self"):
         return "server"
     if m.get("gateway"):
         return "router"
     ports = set(m.get("ports", {}).get("open", []))
     text = " ".join([m.get("vendor") or "", *(m.get("names") or {}).values(), m.get("label") or "", (m.get("snmp") or {}).get("descr", "")]).lower()
+    sn = m.get("snmp") or {}
+    if len(sn.get("ports") or []) >= 5:
+        return "switch"
+    # marque de matériel réseau sans aucun port de PC : routeur secondaire, point d'accès, répéteur
+    # (une carte Wi-Fi TP-Link dans un PC a SSH, SMB… et reste une machine)
+    if any(w in text for w in NET_VENDORS) and not ports & PC_PORTS and not any(w in text for w in TYPES["computer"][-8:]):
+        return "ap"
     if ports & {631, 9100} or (m.get("snmp") or {}).get("ink"):
         return "printer"
     if ports & {554} and not ports & {22, 445}:
@@ -93,8 +108,6 @@ def guess_type(m: dict) -> str:
             if kind == "computer" and {22, 445} <= ports and 3389 not in ports:
                 return "server"
             return kind
-    if (m.get("snmp") or {}).get("ports") and len(m["snmp"]["ports"]) >= 5:
-        return "switch"
     if m.get("random"):
         return "phone"                      # adresse MAC aléatoire : presque toujours un téléphone ou une tablette
     if 62078 in ports:
@@ -102,6 +115,9 @@ def guess_type(m: dict) -> str:
     if ports & {22, 445}:
         return "computer"
     return "unknown"
+
+
+TYPE_NAMES = ("router", "switch", "ap", "server", "computer", "phone", "tv", "speaker", "printer", "nas", "camera", "console", "pi", "iot", "unknown")
 
 
 def is_random(mac: str) -> bool:
@@ -344,8 +360,11 @@ class NetMap:
                 continue
             mac = f[f.index("lladdr") + 1].lower() if "lladdr" in f else ""
             seen[f[0]] = (mac, f[-1])
-        # 2) ping : machines connues et voisins ; tout le sous-réseau toutes les 10 min (/22 au plus large)
-        targets = {ip for ip in seen} | {m["ip"] for m in self.m.values() if m.get("ip")}
+        # 2) ping discret : un seul paquet par machine, espacé (5 min si le noyau la voit déjà, 2 min sinon),
+        #    et tout le sous-réseau toutes les 30 min (/22 au plus large) pour découvrir les nouvelles
+        last_ping = {m["ip"]: m.get("pinged", 0) for m in self.m.values() if m.get("ip")}
+        targets = {ip for ip in set(seen) | set(last_ping)
+                   if now - last_ping.get(ip, 0) >= (PING_OK if seen.get(ip, ("", ""))[1] == "REACHABLE" else PING_DOUBT)}
         if now - self.swept > SWEEP:
             self.swept = now
             for _, net in nets:
@@ -393,6 +412,8 @@ class NetMap:
                     self.dirty = True
                 m["last"] = int(now)
                 m["miss"] = 0
+            if ip in targets:
+                m["pinged"] = int(now)
             if ms is not None:
                 m["rtt"] = round(ms, 2)
                 m["ping"] = int(now)
@@ -415,6 +436,8 @@ class NetMap:
         async def name(m):
             async with sem:
                 await self.resolve(m)
+                if not m.get("ports"):            # ports lus une fois à la découverte, puis seulement à l'ouverture de la fiche
+                    await self.scan_ports(m, force=True)
         await asyncio.gather(*(name(m) for m in stale))
         await asyncio.gather(*(self.poll_snmp(mid) for mid, c in self.cfg.items()
                                if c.get("enabled") and mid in self.m and now - self.m[mid].get("snmpAt", 0) >= SNMP_EVERY - 5),
@@ -564,6 +587,8 @@ class NetMap:
         r["name"] = self.label(m["id"])
         m["agent"] = self.agent_of(m)
         r["type"] = guess_type(m)
+        r["network"] = r["type"] in NETWORK
+        r["kind"] = m.get("kind") or ""
         r["agent"] = m["agent"] is not None
         r["snmp"] = bool((self.cfg.get(m["id"]) or {}).get("enabled"))
         return r
@@ -618,6 +643,14 @@ class NetMap:
             self.m[mid].pop("snmp", None)
             self.hist.pop(mid, None)
             self.prev.pop(mid, None)
+        self.save()
+
+    def set_kind(self, mid, kind):
+        """Type choisi à la main ("" = deviné automatiquement)."""
+        if kind in TYPE_NAMES:
+            self.m[mid]["kind"] = kind
+        else:
+            self.m[mid].pop("kind", None)
         self.save()
 
     def set_label(self, mid, label):

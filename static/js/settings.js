@@ -962,7 +962,7 @@ const BUILD = {
           h('button', {class: 'btn sm primary', onclick: () => saveAlert().catch(() => {})}, 'Enregistrer'))))));
     // machines du réseau : option désactivée par défaut, réservée aux administrateurs
     const nm = ((await api('GET', '/api/admin')).settings.netmap) || {};
-    c.append(section('Machines du réseau', 'Liste de toutes les machines déjà vues sur le réseau local de ce serveur (table des voisins, ping du sous-réseau toutes les 10 minutes) : noms, fabricant, ports ouverts, réveil à distance, SNMP. Visible des administrateurs seulement.',
+    c.append(section('Machines du réseau', 'Liste de toutes les machines déjà vues sur le réseau local de ce serveur, par la table des voisins et un ping discret (un paquet par machine toutes les 2 à 5 minutes, tout le sous-réseau toutes les 30 minutes) : noms, fabricant, ports ouverts, réveil à distance, SNMP. Visible des administrateurs seulement.',
       opt('Activer « Machines du réseau »', 'Ajoute le bouton dans la barre (Alt+Maj+R). Les traps SNMP sont reçus sur le port UDP 162 du serveur, depuis le réseau local seulement',
         sw(!!nm.enabled, async (v) => { try { await api('POST', '/api/admin/settings', {netmap: {enabled: v}}); toast(v ? 'Activé : premières machines dans une minute' : 'Désactivé'); } catch (e) { toastErr(e); throw e; } }, 'Machines du réseau'))));
   },

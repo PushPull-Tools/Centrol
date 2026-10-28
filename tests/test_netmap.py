@@ -179,6 +179,10 @@ def test_type_devine():
     assert N.guess_type({"vendor": "Sonos, Inc.", "ports": {"open": []}}) == "speaker"
     assert N.guess_type({"vendor": "Espressif Inc."}) == "iot"
     assert N.guess_type({"gateway": True}) == "router"
+    # même marque, deux rôles : borne Wi-Fi sans ports de PC = équipement réseau ; carte Wi-Fi d'un PC (SSH) = machine
+    assert N.guess_type({"vendor": "TP-Link Systems Inc.", "ports": {"open": [80, 443]}}) == "ap"
+    assert N.guess_type({"vendor": "TP-Link Systems Inc.", "names": {"dns": "pop-os"}, "ports": {"open": [22]}}) == "computer"
+    assert N.guess_type({"vendor": "Sonos, Inc.", "kind": "tv"}) == "tv"          # type choisi à la main
 
 
 def test_reveil_envoie_le_paquet_par_l_hote():

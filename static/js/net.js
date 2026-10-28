@@ -1,16 +1,21 @@
 /* Machines du réseau (administrateurs, option à activer dans Paramètres › Serveurs) :
    liste de toutes les machines déjà vues, puis une fiche par machine (noms, ports, réveil, agent, SNMP, traps). */
 import {tr} from './i18n.js';
-import {h, ic, S, api, toast, toastErr, confirmBox, ask, collator, norm, fmtWhen, fmtDay, fmtHM, fmtDur, fmtRate, fmtSize, fmtPct} from './core.js';
+import {h, ic, S, lstore, api, toast, toastErr, confirmBox, ask, collator, norm, fmtWhen, fmtDay, fmtHM, fmtDur, fmtRate, fmtSize, fmtPct} from './core.js';
 import {chartBox, meter} from './charts.js';
 
 // type deviné -> icône et libellé
 const TYPES = {
-  router: ['router', 'Routeur / box'], switch: ['switch', 'Switch'], server: ['server', 'Serveur'], computer: ['laptop', 'Ordinateur'],
+  router: ['router', 'Routeur / box'], switch: ['switch', 'Switch'], ap: ['router', 'Point d’accès / répéteur'], server: ['server', 'Serveur'], computer: ['laptop', 'Ordinateur'],
   phone: ['phone', 'Téléphone / tablette'], tv: ['tv', 'Télévision / Chromecast'], speaker: ['speaker', 'Enceinte'], printer: ['printer', 'Imprimante'],
   nas: ['hdd', 'NAS'], camera: ['camera', 'Caméra'], console: ['gamepad', 'Console de jeu'], pi: ['chip', 'Raspberry Pi'],
   iot: ['chip', 'Objet connecté'], unknown: ['help', 'Inconnu'],
 };
+// groupes de la liste, dans cet ordre : les équipements réseau ensemble, puis un groupe par type de matériel
+const GROUPS = [['net', 'Équipements réseau', 'network', ['router', 'switch', 'ap']], ['server', 'Serveurs', 'server', ['server', 'nas', 'pi']],
+  ['computer', 'Ordinateurs', 'laptop', ['computer']], ['phone', 'Téléphones et tablettes', 'phone', ['phone']], ['tv', 'Télévisions', 'tv', ['tv']],
+  ['speaker', 'Enceintes', 'speaker', ['speaker']], ['printer', 'Imprimantes', 'printer', ['printer']], ['camera', 'Caméras', 'camera', ['camera']],
+  ['console', 'Consoles de jeu', 'gamepad', ['console']], ['iot', 'Objets connectés', 'chip', ['iot']], ['unknown', 'Non identifiées', 'help', ['unknown']]];
 const POE = {on: 'Alimenté', off: 'Coupé', search: 'En attente', fault: 'Défaut', test: 'Test', '?': '?'};
 // adresses IPv4 triées comme des nombres (10.0.0.2 avant 10.0.0.10)
 const ipKey = (ip) => (ip || '').split('.').map((x) => x.padStart(3, '0')).join('.');
@@ -70,7 +75,7 @@ export const netTool = {
     const on = d.machines.filter((m) => m.online).length;
     this.info.textContent = tr('{0} en ligne sur {1}').replace('{0}', on).replace('{1}', d.machines.length)
       + (d.scanned ? ' · ' + tr('dernier passage à {0}').replace('{0}', fmtHM(d.scanned)) : '');
-    this.tbody.replaceChildren(...(rows.length ? rows.map((m) => {
+    const rowEl = (m) => {
       const [icon, label] = TYPES[m.type] || TYPES.unknown;
       return h('tr', {class: 'click' + (m.online ? '' : ' off'), tabindex: 0, onclick: () => this.openMachine(m.id), onkeydown: (e) => { if (e.key === 'Enter') this.openMachine(m.id); }},
         h('td', {class: 'net-ic', title: label, html: ic(icon, 18)}),
@@ -82,6 +87,16 @@ export const netTool = {
         h('td', null, h('span', {class: 'dot ' + (m.online ? 'ok' : 'ko')}), m.online ? h('span', {text: 'En ligne'}) : h('span', {class: 'small', notr: true, text: since(m.last)})),
         h('td', {class: 'mono', notr: true, text: m.online && m.rtt != null ? m.rtt + ' ms' : '—'}),
         h('td', {class: 'small', notr: true, text: fmtDay(m.first)}));
+    };
+    // un groupe par type de matériel, repliable (état gardé dans ce navigateur)
+    const folded = lstore.get('netFolded', []);
+    const groups = GROUPS.map(([id, title, icon, types]) => [id, title, icon, rows.filter((m) => types.includes(m.type))]).filter((g) => g[3].length);
+    this.tbody.replaceChildren(...(rows.length ? groups.flatMap(([id, title, icon, list]) => {
+      const shut = folded.includes(id) && !q;
+      const head = h('tr', {class: 'net-group', tabindex: 0, onclick: () => { lstore.set('netFolded', shut ? folded.filter((x) => x !== id) : [...folded, id]); this.paintRows(); }},
+        h('td', {colspan: 7}, h('span', {class: 'chev' + (shut ? '' : ' open'), html: ic('chevR', 12)}), h('span', {html: ic(icon, 15)}), h('b', {text: title}),
+          h('span', {class: 'muted small', notr: true, text: `${list.filter((m) => m.online).length} / ${list.length}`})));
+      return [head, ...(shut ? [] : list.map(rowEl))];
     }) : [h('tr', null, h('td', {colspan: 7, class: 'hint', text: d.machines.length ? 'Aucune machine ne correspond.' : d.error ? tr('Lecture du réseau impossible : ') + d.error : 'Premier passage en cours… (une minute environ)'}))]));
   },
 
@@ -137,6 +152,7 @@ export const netTool = {
         h('div', {class: 'net-grid'},
           h('div', null, h('h3', {text: 'Identité'}),
             row(tr('Adresse IP'), m.ip, true), row(tr('Adresse MAC'), m.mac + (m.random ? ' · ' + tr('aléatoire') : ''), true),
+            h('div', {class: 'kv'}, h('span', {class: 'muted', text: 'Type'}), this.kindPicker(m)),
             row(tr('Fabricant'), m.vendor), row(tr('Nom DNS local'), names.dns), row(tr('Nom mDNS'), names.mdns && names.mdns + '.local'),
             row(tr('Nom NetBIOS'), names.netbios), row(tr('Nom SNMP'), names.snmp)),
           h('div', null, h('h3', {text: 'Historique'}),
@@ -147,6 +163,15 @@ export const netTool = {
         m.agentStats ? this.agentBlock(m.agentStats) : null,
         this.snmpBlock(m),
         m.traps.length ? this.trapsBlock(m.traps) : null));
+  },
+
+  /** Type deviné, ou choisi à la main (« Automatique » revient au type deviné). */
+  kindPicker(m) {
+    const sel = h('select', {class: 'inp sm', onchange: () => this.act(m, 'kind', {kind: sel.value}, 'Type enregistré').catch(() => {})},
+      h('option', {value: '', text: tr('Automatique') + (m.kind ? '' : ' · ' + tr((TYPES[m.type] || TYPES.unknown)[1]))}),
+      ...Object.entries(TYPES).map(([k, [, l]]) => h('option', {value: k, text: l})));
+    sel.value = m.kind || '';
+    return sel;
   },
 
   // ------------------------------------------------------------------ agent Centrol présent sur la machine

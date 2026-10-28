@@ -1266,3 +1266,7 @@ body:not([data-mode="overview"]) .win:not(.show) { left: -400vw; }
 .net-form3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 12px; }
 .tbl td.warn { color: var(--warn); }
 @media (max-width: 640px) { .net-body { padding: 10px 12px 24px; } .net-off, .net-state { margin-left: 0; } .net-meter { grid-template-columns: 1fr; gap: 2px; } }
+.net-group td { background: var(--panel3); cursor: pointer; padding: 6px 10px; }
+.net-group td > * { vertical-align: middle; margin-right: 8px; }
+.net-group .chev { display: inline-block; transition: transform .15s; } .net-group .chev.open { transform: rotate(90deg); }
+.kv .inp.sm { padding: 2px 6px; height: auto; font-size: 12.5px; }
